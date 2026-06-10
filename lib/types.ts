@@ -22,6 +22,18 @@ export type CaptionMode =
 
 export type CaptionAnimation = "none" | "pop" | "fade" | "slide-up";
 
+/** Анимация появления слова в режиме design (момент = startMs слова) */
+export type DesignWordAnim =
+  | "pop" // пружинное увеличение
+  | "stamp" // «штамп»: влетает большим и припечатывается
+  | "whip" // вылет слева с раскруткой
+  | "slide-left" // въезд слева
+  | "slide-right" // въезд справа
+  | "rise" // подъём снизу
+  | "blur" // проявление из расфокуса
+  | "tracking" // буквы съезжаются из разрядки
+  | "flip"; // 3D-переворот по горизонтальной оси
+
 /** Вариант оформления слова в режиме design (назначается по индексу по кругу) */
 export type DesignWordVariant = {
   sizeMult: number;
@@ -35,6 +47,8 @@ export type DesignWordVariant = {
   bg?: string;
   /** межбуквенный интервал в em */
   ls?: number;
+  /** анимация появления слова */
+  anim?: DesignWordAnim;
 };
 
 export type CaptionStyle = {

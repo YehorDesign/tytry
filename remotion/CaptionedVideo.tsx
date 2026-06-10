@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import {
   AbsoluteFill,
+  Easing,
   OffthreadVideo,
   interpolate,
   spring,
@@ -11,6 +12,7 @@ import type {
   CaptionInputProps,
   CaptionPage,
   CaptionStyle,
+  DesignWordAnim,
   DesignWordVariant,
   Word,
 } from "../lib/types";
@@ -125,6 +127,7 @@ const CaptionOverlay: React.FC<{
         }}
       >
         {style.mode === "design" ? (
+          // без pageTransform/pageOpacity: каждое слово анимируется само в свой startMs
           <div
             style={{
               display: "flex",
@@ -133,8 +136,6 @@ const CaptionOverlay: React.FC<{
               gap: fontSize * 0.08,
               maxWidth: "92%",
               textAlign: "center",
-              transform: pageTransform,
-              opacity: pageOpacity,
             }}
           >
             {page.words.map((word, i) => (
@@ -173,7 +174,105 @@ const CaptionOverlay: React.FC<{
   );
 };
 
-/** Слово в режиме design: своя гарнитура, размер, цвет, наклон, плашка */
+/** Состояние входной анимации design-слова на текущем кадре */
+type DesignEnter = {
+  transform: string;
+  opacity: number;
+  filter?: string;
+  /** добавка к letter-spacing в em (для tracking) */
+  lsExtraEm: number;
+};
+
+function designEnter(
+  anim: DesignWordAnim,
+  f: number, // кадров с момента startMs слова (может быть < 0)
+  fps: number,
+  sizePx: number
+): DesignEnter {
+  // слово ещё не прозвучало: невидимо, но занимает место (стопка не прыгает)
+  if (f < 0) return { transform: "none", opacity: 0, lsExtraEm: 0 };
+
+  const fadeIn = (frames: number) =>
+    interpolate(f, [0, frames], [0, 1], { extrapolateRight: "clamp" });
+  const sp = (config: { damping: number; stiffness: number; mass?: number }, dur = 12) =>
+    spring({ frame: f, fps, config, durationInFrames: dur });
+
+  switch (anim) {
+    case "stamp": {
+      // влетает огромным и припечатывается с лёгким перелётом
+      const t = sp({ damping: 16, stiffness: 380, mass: 0.7 }, 8);
+      return {
+        transform: `scale(${2.4 - 1.4 * t})`,
+        opacity: fadeIn(2),
+        lsExtraEm: 0,
+      };
+    }
+    case "whip": {
+      const t = sp({ damping: 12, stiffness: 170 }, 14);
+      return {
+        transform: `translateX(${-1.1 * sizePx * (1 - t)}px) rotate(${-14 * (1 - t)}deg)`,
+        opacity: fadeIn(3),
+        lsExtraEm: 0,
+      };
+    }
+    case "slide-left":
+    case "slide-right": {
+      const t = sp({ damping: 14, stiffness: 190 }, 12);
+      const dir = anim === "slide-left" ? -1 : 1;
+      return {
+        transform: `translateX(${dir * 1.4 * sizePx * (1 - t)}px)`,
+        opacity: fadeIn(4),
+        lsExtraEm: 0,
+      };
+    }
+    case "rise": {
+      const t = sp({ damping: 13, stiffness: 180 }, 12);
+      return {
+        transform: `translateY(${0.7 * sizePx * (1 - t)}px)`,
+        opacity: fadeIn(4),
+        lsExtraEm: 0,
+      };
+    }
+    case "blur": {
+      const t = interpolate(f, [0, 12], [0, 1], {
+        extrapolateRight: "clamp",
+        easing: Easing.out(Easing.cubic),
+      });
+      return {
+        transform: `scale(${1.05 - 0.05 * t})`,
+        opacity: t,
+        filter: t < 1 ? `blur(${0.25 * sizePx * (1 - t)}px)` : undefined,
+        lsExtraEm: 0,
+      };
+    }
+    case "tracking": {
+      const t = interpolate(f, [0, 16], [0, 1], {
+        extrapolateRight: "clamp",
+        easing: Easing.out(Easing.cubic),
+      });
+      return { transform: "none", opacity: t, lsExtraEm: 0.45 * (1 - t) };
+    }
+    case "flip": {
+      const t = sp({ damping: 13, stiffness: 170 }, 12);
+      return {
+        transform: `perspective(${8 * sizePx}px) rotateX(${85 * (1 - t)}deg)`,
+        opacity: fadeIn(3),
+        lsExtraEm: 0,
+      };
+    }
+    case "pop":
+    default: {
+      const t = sp({ damping: 11, stiffness: 210, mass: 0.6 }, 12);
+      return {
+        transform: `scale(${0.3 + 0.7 * t})`,
+        opacity: fadeIn(3),
+        lsExtraEm: 0,
+      };
+    }
+  }
+}
+
+/** Слово в режиме design: своя гарнитура, размер, цвет, наклон, плашка, анимация */
 const DesignWord: React.FC<{
   word: Word;
   variant: DesignWordVariant;
@@ -181,6 +280,8 @@ const DesignWord: React.FC<{
   fontSize: number;
   frameWidth: number;
 }> = ({ word, variant, style, fontSize, frameWidth }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const family = variant.font ?? style.fontFamily;
   // у дизайн-слов знаки препинания убираем — это «обложка», не текст
   const text = word.text.replace(/[.,!?;:…]+$/u, "");
@@ -188,6 +289,20 @@ const DesignWord: React.FC<{
   // длинное слово не должно вылезать за кадр: грубая оценка ~0.6em на символ
   const charBudget = (frameWidth * 0.9) / Math.max(text.length, 1) / 0.6;
   const finalSize = Math.min(fontSize * variant.sizeMult, charBudget);
+
+  const wordStartFrame = Math.round((word.startMs / 1000) * fps);
+  const enter = designEnter(
+    variant.anim ?? "pop",
+    frame - wordStartFrame,
+    fps,
+    finalSize
+  );
+
+  const baseRotate = variant.rotate ? `rotate(${variant.rotate}deg)` : "";
+  const transform =
+    enter.transform === "none" ? baseRotate || undefined : `${enter.transform} ${baseRotate}`.trim();
+  const ls = (variant.ls ?? 0) + enter.lsExtraEm;
+
   return (
     <span
       style={{
@@ -197,8 +312,10 @@ const DesignWord: React.FC<{
         fontStyle: variant.italic ? "italic" : "normal",
         color: variant.color ?? style.textColor,
         textTransform: (variant.caps ?? style.uppercase) ? "uppercase" : "none",
-        letterSpacing: variant.ls ? `${variant.ls}em` : undefined,
-        transform: variant.rotate ? `rotate(${variant.rotate}deg)` : undefined,
+        letterSpacing: ls ? `${ls}em` : undefined,
+        transform,
+        opacity: enter.opacity,
+        filter: enter.filter,
         backgroundColor: variant.bg ?? undefined,
         padding: variant.bg ? "0.02em 0.3em" : undefined,
         lineHeight: 1.08,

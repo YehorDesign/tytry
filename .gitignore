@@ -6,3 +6,4 @@ remotion-bundle
 .env.local
 *.tsbuildinfo
 next-env.d.ts
+dist-mac

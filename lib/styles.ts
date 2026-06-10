@@ -299,10 +299,10 @@ export const CAPTION_STYLES: CaptionStyle[] = [
     animation: "fade",
     positionY: 0.5,
     designWords: [
-      { sizeMult: 2.0, font: "PlayfairDisplay", weight: 900, caps: true },
-      { sizeMult: 0.8, font: "Montserrat", weight: 600, caps: true, ls: 0.3 },
-      { sizeMult: 1.5, font: "PlayfairDisplay", italic: true, color: "#E8C9A0" },
-      { sizeMult: 0.95, font: "Montserrat", weight: 700, caps: true, ls: 0.18 },
+      { sizeMult: 2.0, font: "PlayfairDisplay", weight: 900, caps: true, anim: "tracking" },
+      { sizeMult: 0.8, font: "Montserrat", weight: 600, caps: true, ls: 0.3, anim: "blur" },
+      { sizeMult: 1.5, font: "PlayfairDisplay", italic: true, color: "#E8C9A0", anim: "rise" },
+      { sizeMult: 0.95, font: "Montserrat", weight: 700, caps: true, ls: 0.18, anim: "tracking" },
     ],
   },
   {
@@ -323,10 +323,10 @@ export const CAPTION_STYLES: CaptionStyle[] = [
     animation: "pop",
     positionY: 0.5,
     designWords: [
-      { sizeMult: 1.8, caps: true, rotate: -3, color: "#C8FF2E" },
-      { sizeMult: 1.0, font: "Oswald", weight: 700, caps: true, rotate: 1.5, bg: "#0A0B0D" },
-      { sizeMult: 1.4, caps: true, rotate: 2 },
-      { sizeMult: 0.85, font: "JetBrainsMono", weight: 800, rotate: -1, color: "#FF4D4D" },
+      { sizeMult: 1.8, caps: true, rotate: -3, color: "#C8FF2E", anim: "stamp" },
+      { sizeMult: 1.0, font: "Oswald", weight: 700, caps: true, rotate: 1.5, bg: "#0A0B0D", anim: "slide-left" },
+      { sizeMult: 1.4, caps: true, rotate: 2, anim: "whip" },
+      { sizeMult: 0.85, font: "JetBrainsMono", weight: 800, rotate: -1, color: "#FF4D4D", anim: "slide-right" },
     ],
   },
   {
@@ -347,10 +347,10 @@ export const CAPTION_STYLES: CaptionStyle[] = [
     animation: "fade",
     positionY: 0.5,
     designWords: [
-      { sizeMult: 0.95, font: "Oswald", weight: 600, caps: true, ls: 0.14 },
-      { sizeMult: 2.0, font: "PlayfairDisplay", weight: 900, italic: true, color: "#FF3B30" },
-      { sizeMult: 1.2, font: "Montserrat", weight: 800, caps: true },
-      { sizeMult: 1.55, font: "PlayfairDisplay", weight: 700 },
+      { sizeMult: 0.95, font: "Oswald", weight: 600, caps: true, ls: 0.14, anim: "tracking" },
+      { sizeMult: 2.0, font: "PlayfairDisplay", weight: 900, italic: true, color: "#FF3B30", anim: "blur" },
+      { sizeMult: 1.2, font: "Montserrat", weight: 800, caps: true, anim: "slide-left" },
+      { sizeMult: 1.55, font: "PlayfairDisplay", weight: 700, anim: "rise" },
     ],
   },
   {
@@ -371,10 +371,10 @@ export const CAPTION_STYLES: CaptionStyle[] = [
     animation: "pop",
     positionY: 0.5,
     designWords: [
-      { sizeMult: 2.2, font: "Caveat", weight: 700, color: "#C8FF2E", rotate: -2 },
-      { sizeMult: 0.75, font: "JetBrainsMono", weight: 700, caps: true },
-      { sizeMult: 1.7, font: "Caveat", weight: 700, rotate: 1.5 },
-      { sizeMult: 0.95, font: "Montserrat", weight: 800, caps: true, ls: 0.12 },
+      { sizeMult: 2.2, font: "Caveat", weight: 700, color: "#C8FF2E", rotate: -2, anim: "pop" },
+      { sizeMult: 0.75, font: "JetBrainsMono", weight: 700, caps: true, anim: "flip" },
+      { sizeMult: 1.7, font: "Caveat", weight: 700, rotate: 1.5, anim: "whip" },
+      { sizeMult: 0.95, font: "Montserrat", weight: 800, caps: true, ls: 0.12, anim: "stamp" },
     ],
   },
   {
@@ -395,10 +395,10 @@ export const CAPTION_STYLES: CaptionStyle[] = [
     animation: "slide-up",
     positionY: 0.5,
     designWords: [
-      { sizeMult: 1.65, caps: true, bg: "#0A0B0D", color: "#FFFFFF" },
-      { sizeMult: 1.0, caps: true, bg: "#C8FF2E", color: "#0A0B0D" },
-      { sizeMult: 1.3, caps: true, bg: "#0A0B0D", color: "#FFFFFF" },
-      { sizeMult: 0.8, caps: true, bg: "#FF3B30", color: "#FFFFFF" },
+      { sizeMult: 1.65, caps: true, bg: "#0A0B0D", color: "#FFFFFF", anim: "flip" },
+      { sizeMult: 1.0, caps: true, bg: "#C8FF2E", color: "#0A0B0D", anim: "stamp" },
+      { sizeMult: 1.3, caps: true, bg: "#0A0B0D", color: "#FFFFFF", anim: "slide-left" },
+      { sizeMult: 0.8, caps: true, bg: "#FF3B30", color: "#FFFFFF", anim: "rise" },
     ],
   },
 ];
