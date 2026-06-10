@@ -12,7 +12,7 @@ jobs:
         include:
           - runner: macos-latest # Apple Silicon (arm64)
             arch: arm64
-          - runner: macos-13 # Intel (x64)
+          - runner: macos-15-intel # Intel (x64)
             arch: x64
     runs-on: ${{ matrix.runner }}
     steps:
