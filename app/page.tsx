@@ -1,0 +1,653 @@
+"use client";
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import type { PlayerRef } from "@remotion/player";
+import { CaptionEditor } from "@/components/CaptionEditor";
+import { StylePanel } from "@/components/StylePanel";
+import { Timeline } from "@/components/Timeline";
+import { formatTimestamp, groupWordsIntoPages } from "@/lib/captions";
+import { STRINGS, getLocale, setLocale, type Locale } from "@/lib/i18n";
+import { resolveStyle } from "@/lib/styles";
+import type { Project, StyleOverrides, Word } from "@/lib/types";
+
+const PreviewPlayer = dynamic(
+  () => import("@/components/PreviewPlayer").then((m) => m.PreviewPlayer),
+  { ssr: false }
+);
+
+const FPS = 30;
+
+export default function Home() {
+  const [locale, setLocaleState] = useState<Locale>("uk");
+  const t = STRINGS[locale];
+
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"style" | "text">("style");
+  const [language, setLanguage] = useState("auto");
+  const [uploading, setUploading] = useState(false);
+  const [dragover, setDragover] = useState(false);
+  const [currentMs, setCurrentMs] = useState(0);
+
+  // настройки
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [maskedKey, setMaskedKey] = useState<string | null>(null);
+  const [keyInput, setKeyInput] = useState("");
+  const [outputDir, setOutputDir] = useState("");
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  // локальное (редактируемое) состояние выбранного проекта
+  const [words, setWords] = useState<Word[]>([]);
+  const [styleId, setStyleId] = useState("hormozi");
+  const [overrides, setOverrides] = useState<StyleOverrides>({});
+
+  const playerRef = useRef<PlayerRef | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+
+  const selected = projects.find((p) => p.id === selectedId) ?? null;
+
+  useEffect(() => {
+    setLocaleState(getLocale());
+  }, []);
+
+  const switchLocale = (next: Locale) => {
+    setLocale(next);
+    setLocaleState(next);
+  };
+
+  const STATUS_LABELS: Record<string, string> = {
+    uploaded: t.statusUploaded,
+    transcribing: t.statusTranscribing,
+    ready: t.statusReady,
+    rendering: t.statusRendering,
+    done: t.statusDone,
+    error: t.statusError,
+  };
+
+  // ── загрузка списка + поллинг статусов ──
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/projects");
+      const data = (await res.json()) as { projects: Project[] };
+      setProjects(data.projects);
+      const sel = data.projects.find((p) => p.id === selectedIdRef.current);
+      if (sel?.words && sel.words.length > 0) {
+        setWords((w) => (w.length === 0 ? sel.words! : w));
+      }
+    } catch {
+      // сервер ещё поднимается — игнорируем
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, 2000);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
+  // ── статус ключа Deepgram и папка вывода ──
+  const refreshSettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings");
+      const data = (await res.json()) as {
+        hasDeepgramKey: boolean;
+        maskedKey: string | null;
+        outputDir: string;
+      };
+      setHasKey(data.hasDeepgramKey);
+      setMaskedKey(data.maskedKey);
+      setOutputDir(data.outputDir);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshSettings();
+  }, [refreshSettings]);
+
+  const saveSettings = async () => {
+    setSavingSettings(true);
+    try {
+      const body: Record<string, string> = { outputDir };
+      if (keyInput.trim()) body.deepgramApiKey = keyInput.trim();
+      await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      setKeyInput("");
+      await refreshSettings();
+      setSettingsOpen(false);
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const browseFolder = async () => {
+    const picked = await window.titryNative?.pickFolder();
+    if (picked) setOutputDir(picked);
+  };
+
+  // ── позиция плеера ──
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const frame = playerRef.current?.getCurrentFrame();
+      if (frame !== undefined && frame !== null) {
+        setCurrentMs((frame / FPS) * 1000);
+      }
+    }, 150);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ── выбор проекта ──
+  const selectProject = useCallback((project: Project) => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    selectedIdRef.current = project.id;
+    setSelectedId(project.id);
+    setWords(project.words ?? []);
+    setStyleId(project.styleId);
+    setOverrides(project.overrides ?? {});
+    setCurrentMs(0);
+  }, []);
+
+  // ── отложенное сохранение правок ──
+  const scheduleSave = useCallback((patch: Partial<Project>) => {
+    const id = selectedIdRef.current;
+    if (!id) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      fetch(`/api/projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      }).catch(() => {});
+    }, 600);
+  }, []);
+
+  const handleWordsChange = (next: Word[]) => {
+    setWords(next);
+    scheduleSave({ words: next, styleId, overrides });
+  };
+  const handleStyleChange = (next: string) => {
+    setStyleId(next);
+    scheduleSave({ words, styleId: next, overrides: {} });
+  };
+  const handleOverridesChange = (next: StyleOverrides) => {
+    setOverrides(next);
+    scheduleSave({ words, styleId, overrides: next });
+  };
+
+  // ── загрузка файлов ──
+  const uploadFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const list = Array.from(files).filter((f) =>
+        /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(f.name)
+      );
+      if (list.length === 0) return;
+      setUploading(true);
+      try {
+        const formData = new FormData();
+        for (const f of list) formData.append("files", f);
+        const res = await fetch("/api/upload", { method: "POST", body: formData });
+        const data = (await res.json()) as { created: Project[] };
+        await refresh();
+        if (data.created.length > 0 && !selectedIdRef.current) {
+          selectProject(data.created[0]);
+        }
+        for (const p of data.created) {
+          fetch("/api/transcribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: p.id, language }),
+          })
+            .then(() => refresh())
+            .catch(() => {});
+        }
+      } finally {
+        setUploading(false);
+      }
+    },
+    [language, refresh, selectProject]
+  );
+
+  const transcribe = async (id: string) => {
+    setProjects((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, status: "transcribing" as const } : p))
+    );
+    if (id === selectedIdRef.current) setWords([]);
+    await fetch("/api/transcribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, language }),
+    }).catch(() => {});
+    await refresh();
+  };
+
+  const render = async (id: string) => {
+    await fetch("/api/render", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    await refresh();
+  };
+
+  const renderAll = async () => {
+    const ready = projects.filter(
+      (p) => (p.status === "ready" || p.status === "done") && p.words?.length
+    );
+    for (const p of ready) await render(p.id);
+  };
+
+  const removeProject = async (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!confirm(t.confirmDelete)) return;
+    await fetch(`/api/projects/${id}`, { method: "DELETE" });
+    if (selectedIdRef.current === id) {
+      selectedIdRef.current = null;
+      setSelectedId(null);
+    }
+    await refresh();
+  };
+
+  const seek = (ms: number) => {
+    playerRef.current?.seekTo(Math.round((ms / 1000) * FPS));
+    playerRef.current?.pause();
+    setCurrentMs(ms);
+  };
+
+  const resolved = resolveStyle(styleId, overrides);
+  const pages = useMemo(
+    () => groupWordsIntoPages(words, resolved.maxWordsPerPage),
+    [words, resolved.maxWordsPerPage]
+  );
+
+  const renderableCount = projects.filter(
+    (p) => (p.status === "ready" || p.status === "done") && p.words?.length
+  ).length;
+
+  return (
+    <div
+      className="shell"
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragover(true);
+      }}
+      onDragLeave={() => setDragover(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragover(false);
+        uploadFiles(e.dataTransfer.files);
+      }}
+    >
+      {/* ───── верхняя панель ───── */}
+      <header className="topbar">
+        <div className="logo">
+          ТИТ<em>РИ</em>
+          <span className="logo-sub">deepgram × remotion</span>
+        </div>
+        <div className="topbar-spacer" />
+        <div className="locale-toggle">
+          <button
+            className={locale === "uk" ? "on" : ""}
+            onClick={() => switchLocale("uk")}
+          >
+            UA
+          </button>
+          <button
+            className={locale === "en" ? "on" : ""}
+            onClick={() => switchLocale("en")}
+          >
+            EN
+          </button>
+        </div>
+        <button
+          className="btn"
+          style={{ position: "relative" }}
+          onClick={() => setSettingsOpen(true)}
+          title={t.settingsTitle}
+        >
+          ⚙
+          {hasKey === false && <span className="warn-dot" />}
+        </button>
+        <select
+          className="select"
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+          title={t.speechLanguage}
+        >
+          <option value="auto">{t.langAuto}</option>
+          <option value="uk">{t.langUk}</option>
+          <option value="en">{t.langEn}</option>
+        </select>
+        <button
+          className="btn"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+        >
+          {uploading ? t.uploading : t.addVideos}
+        </button>
+        <button
+          className="btn btn-accent"
+          onClick={renderAll}
+          disabled={renderableCount === 0}
+        >
+          {t.renderAll} ({renderableCount})
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*,.mp4,.mov,.webm,.mkv"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files) uploadFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+      </header>
+
+      <div className="workspace">
+        {/* ───── список проектов ───── */}
+        <aside className="rail">
+          <div className="rail-head">
+            <span className="rail-title">
+              {t.videos} — {projects.length}
+            </span>
+          </div>
+          <div className="rail-list">
+            {projects.map((p) => (
+              <div
+                key={p.id}
+                className={`project-card ${p.id === selectedId ? "selected" : ""}`}
+                onClick={() => selectProject(p)}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  className="project-thumb"
+                  src={`/api/file/thumbs/${p.id}.jpg`}
+                  alt=""
+                  onError={(e) =>
+                    ((e.target as HTMLImageElement).style.visibility = "hidden")
+                  }
+                />
+                <div className="project-info">
+                  <span className="project-name">{p.name}</span>
+                  <span className="project-meta">
+                    {p.video.width}×{p.video.height} · {formatTimestamp(p.video.durationMs)}
+                  </span>
+                  <span className="status-chip">
+                    <span className={`status-dot ${p.status}`} />
+                    {p.status === "rendering" && p.renderProgress
+                      ? t.renderPct(Math.round(p.renderProgress * 100))
+                      : STATUS_LABELS[p.status]}
+                  </span>
+                </div>
+                <button
+                  className="card-delete"
+                  title={t.deleteProjectTitle}
+                  onClick={(e) => removeProject(p.id, e)}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            {projects.length === 0 && (
+              <p className="hint" style={{ padding: "8px 6px" }}>
+                {t.railEmpty}
+              </p>
+            )}
+          </div>
+        </aside>
+
+        {/* ───── сцена ───── */}
+        <main className="stage">
+          <div className="stage-canvas">
+            {selected ? (
+              <PreviewPlayer
+                project={selected}
+                words={words}
+                styleId={styleId}
+                overrides={overrides}
+                playerRef={playerRef}
+              />
+            ) : (
+              <div className="stage-empty">
+                <div
+                  className={`dropzone ${dragover ? "dragover" : ""}`}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <div className="stage-empty-title">{t.dropTitle}</div>
+                  <p className="hint" style={{ whiteSpace: "pre-line" }}>
+                    {t.dropHint}
+                  </p>
+                  <span className="btn btn-accent">{t.chooseFiles}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* таймлайн */}
+          {selected && pages.length > 0 && (
+            <Timeline
+              words={words}
+              maxWordsPerPage={resolved.maxWordsPerPage}
+              durationMs={selected.video.durationMs}
+              currentMs={currentMs}
+              hint={t.timelineHint}
+              onWordsChange={handleWordsChange}
+              onSeek={seek}
+            />
+          )}
+        </main>
+
+        {/* ───── правая панель ───── */}
+        <aside className="panel">
+          {selected ? (
+            <>
+              <div className="tabs">
+                <button
+                  className={`tab ${tab === "style" ? "active" : ""}`}
+                  onClick={() => setTab("style")}
+                >
+                  {t.tabStyle}
+                </button>
+                <button
+                  className={`tab ${tab === "text" ? "active" : ""}`}
+                  onClick={() => setTab("text")}
+                >
+                  {t.tabText}
+                </button>
+              </div>
+              <div className="panel-body">
+                {selected.status === "error" && selected.error && (
+                  <div className="error-box">{selected.error}</div>
+                )}
+
+                {selected.status === "transcribing" && (
+                  <div className="hint">{t.transcribingHint}</div>
+                )}
+
+                {tab === "style" ? (
+                  <StylePanel
+                    t={t}
+                    styleId={styleId}
+                    overrides={overrides}
+                    onStyleChange={handleStyleChange}
+                    onOverridesChange={handleOverridesChange}
+                  />
+                ) : (
+                  <CaptionEditor
+                    t={t}
+                    words={words}
+                    maxWordsPerPage={resolved.maxWordsPerPage}
+                    currentMs={currentMs}
+                    onWordsChange={handleWordsChange}
+                    onSeek={seek}
+                  />
+                )}
+
+                <div className="divider" />
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {selected.status === "rendering" && (
+                    <div className="control-row">
+                      <div className="progress-track">
+                        <div
+                          className="progress-fill"
+                          style={{
+                            width: `${Math.round((selected.renderProgress ?? 0) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                      <span className="control-value">
+                        {Math.round((selected.renderProgress ?? 0) * 100)}%
+                      </span>
+                    </div>
+                  )}
+
+                  <button
+                    className="btn btn-accent"
+                    onClick={() => render(selected.id)}
+                    disabled={
+                      words.length === 0 ||
+                      selected.status === "rendering" ||
+                      selected.status === "transcribing"
+                    }
+                  >
+                    {selected.status === "rendering" ? t.rendering : t.renderVideo}
+                  </button>
+
+                  {selected.status === "done" && selected.renderFile && (
+                    <>
+                      <a
+                        className="btn"
+                        style={{ justifyContent: "center", textDecoration: "none" }}
+                        href={`/api/download?id=${selected.id}`}
+                      >
+                        {t.downloadResult}
+                      </a>
+                      {typeof window !== "undefined" && window.titryNative && (
+                        <button
+                          className="btn btn-sm"
+                          onClick={() =>
+                            window.titryNative?.showInFolder(selected.renderFile!)
+                          }
+                        >
+                          {t.showInFolder}
+                        </button>
+                      )}
+                    </>
+                  )}
+
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => transcribe(selected.id)}
+                    disabled={selected.status === "transcribing"}
+                  >
+                    {words.length === 0 ? t.transcribe : t.retranscribe}
+                  </button>
+
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ color: "var(--danger)" }}
+                    onClick={() => removeProject(selected.id)}
+                  >
+                    {t.deleteProject}
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="panel-body">
+              <div className="section-label">{t.howItWorks}</div>
+              <p className="hint" style={{ whiteSpace: "pre-line" }}>
+                {t.howItWorksText}
+              </p>
+            </div>
+          )}
+        </aside>
+      </div>
+
+      {/* ───── настройки ───── */}
+      {settingsOpen && (
+        <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
+          <div className="modal fade-in" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">{t.settingsTitle}</div>
+
+            <div>
+              <div className="section-label">{t.deepgramKey}</div>
+              {hasKey && maskedKey ? (
+                <p className="key-badge" style={{ marginBottom: 8 }}>
+                  ● {t.keySet} {maskedKey}
+                </p>
+              ) : (
+                <p className="hint" style={{ marginBottom: 8, color: "var(--danger)" }}>
+                  {t.keyMissing}
+                </p>
+              )}
+              <input
+                className="text-input"
+                type="password"
+                placeholder={hasKey ? t.keyReplacePlaceholder : t.keyPlaceholder}
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+              />
+              <p className="hint" style={{ marginTop: 8 }}>
+                {t.keyHintPrefix}{" "}
+                <a
+                  href="https://console.deepgram.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: "var(--accent)" }}
+                >
+                  console.deepgram.com
+                </a>{" "}
+                {t.keyHintSuffix}
+              </p>
+            </div>
+
+            <div>
+              <div className="section-label">{t.outputFolder}</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  className="text-input"
+                  type="text"
+                  placeholder={t.outputFolderPlaceholder}
+                  value={outputDir}
+                  onChange={(e) => setOutputDir(e.target.value)}
+                />
+                {typeof window !== "undefined" && window.titryNative && (
+                  <button className="btn" onClick={browseFolder}>
+                    {t.browse}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="btn" onClick={() => setSettingsOpen(false)}>
+                {t.close}
+              </button>
+              <button
+                className="btn btn-accent"
+                onClick={saveSettings}
+                disabled={savingSettings}
+              >
+                {savingSettings ? t.saving : t.save}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

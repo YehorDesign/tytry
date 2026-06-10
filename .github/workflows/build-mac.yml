@@ -1,0 +1,38 @@
+name: Build macOS DMG
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  dmg:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-latest # Apple Silicon (arm64)
+            arch: arm64
+          - runner: macos-13 # Intel (x64)
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build DMG
+        run: npm run dist:mac
+        env:
+          # без сертификата Apple Developer — собираем неподписанный dmg
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TYTRY-dmg-${{ matrix.arch }}
+          path: dist/*.dmg
+          if-no-files-found: error

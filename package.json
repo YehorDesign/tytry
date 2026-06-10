@@ -1,0 +1,76 @@
+{
+  "name": "tytry",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local styled-captions generator for videos (Deepgram + Remotion)",
+  "author": "PlayMe Studio",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "app": "electron .",
+    "prebundle": "node scripts/prebundle.mjs",
+    "dist": "next build && node scripts/prebundle.mjs && electron-builder --win",
+    "dist:mac": "next build && node scripts/prebundle.mjs && electron-builder --mac",
+    "typecheck": "tsc --noEmit"
+  },
+  "build": {
+    "appId": "studio.playme.tytry",
+    "productName": "TYTRY",
+    "asar": false,
+    "compression": "normal",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**",
+      ".next/**",
+      "remotion-bundle/**",
+      "next.config.ts",
+      "!workspace/**",
+      "!dist/**",
+      "!.env*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true,
+      "shortcutName": "TYTRY",
+      "artifactName": "TYTRY-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "icon": "build/icon.png",
+      "category": "public.app-category.video",
+      "artifactName": "TYTRY-${version}-${arch}.${ext}"
+    }
+  },
+  "dependencies": {
+    "@deepgram/sdk": "^3.9.0",
+    "@remotion/bundler": "^4.0.0",
+    "@remotion/google-fonts": "^4.0.0",
+    "@remotion/player": "^4.0.0",
+    "@remotion/renderer": "^4.0.0",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
+    "font-list": "^2.1.0",
+    "next": "^15.3.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.2",
+    "typescript": "^5.8.0"
+  }
+}
