@@ -18,6 +18,7 @@
   "build": {
     "appId": "studio.playme.tytry",
     "productName": "TYTRY",
+    "publish": null,
     "asar": false,
     "compression": "normal",
     "directories": {
