@@ -36,6 +36,9 @@ export default function Home() {
   const [maskedKey, setMaskedKey] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [outputDir, setOutputDir] = useState("");
+  const [parallelRenders, setParallelRenders] = useState(3);
+  const [encoder, setEncoder] = useState("auto");
+  const [renderEngine, setRenderEngine] = useState("native");
   const [savingSettings, setSavingSettings] = useState(false);
 
   // локальное (редактируемое) состояние выбранного проекта
@@ -97,10 +100,16 @@ export default function Home() {
         hasDeepgramKey: boolean;
         maskedKey: string | null;
         outputDir: string;
+        parallelRenders?: number;
+        encoder?: string;
+        renderEngine?: string;
       };
       setHasKey(data.hasDeepgramKey);
       setMaskedKey(data.maskedKey);
       setOutputDir(data.outputDir);
+      setParallelRenders(data.parallelRenders ?? 3);
+      setEncoder(data.encoder ?? "auto");
+      setRenderEngine(data.renderEngine ?? "native");
     } catch {
       // ignore
     }
@@ -113,7 +122,12 @@ export default function Home() {
   const saveSettings = async () => {
     setSavingSettings(true);
     try {
-      const body: Record<string, string> = { outputDir };
+      const body: Record<string, string | number> = {
+        outputDir,
+        parallelRenders,
+        encoder,
+        renderEngine,
+      };
       if (keyInput.trim()) body.deepgramApiKey = keyInput.trim();
       await fetch("/api/settings", {
         method: "POST",
@@ -292,7 +306,7 @@ export default function Home() {
       <header className="topbar">
         <div className="logo">
           ТИТ<em>РИ</em>
-          <span className="logo-sub">deepgram × remotion</span>
+          <span className="logo-sub">deepgram × nvenc</span>
         </div>
         <div className="topbar-spacer" />
         <div className="locale-toggle">
@@ -630,6 +644,48 @@ export default function Home() {
                     {t.browse}
                   </button>
                 )}
+              </div>
+            </div>
+
+            <div>
+              <div className="section-label">{t.renderSection}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className="hint" style={{ flex: 1 }}>{t.parallelRenders}</span>
+                  <select
+                    className="select"
+                    value={parallelRenders}
+                    onChange={(e) => setParallelRenders(Number(e.target.value))}
+                  >
+                    {[1, 2, 3, 4].map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className="hint" style={{ flex: 1 }}>{t.encoderLabel}</span>
+                  <select
+                    className="select"
+                    value={encoder}
+                    onChange={(e) => setEncoder(e.target.value)}
+                  >
+                    <option value="auto">{t.encoderAuto}</option>
+                    <option value="nvenc">{t.encoderNvenc}</option>
+                    <option value="cpu">{t.encoderCpu}</option>
+                  </select>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className="hint" style={{ flex: 1 }}>{t.engineLabel}</span>
+                  <select
+                    className="select"
+                    value={renderEngine}
+                    onChange={(e) => setRenderEngine(e.target.value)}
+                  >
+                    <option value="native">{t.engineNative}</option>
+                    <option value="chrome">{t.engineChrome}</option>
+                  </select>
+                </div>
+                <p className="hint">{t.parallelHint}</p>
               </div>
             </div>
 

@@ -8,6 +8,12 @@ export type Settings = {
   deepgramApiKey?: string;
   /** папка для готовых рендеров; пусто = workspace/renders */
   outputDir?: string;
+  /** сколько видео рендерить одновременно (1–4, по умолчанию 3) */
+  parallelRenders?: number;
+  /** видеокодек: auto = NVENC если доступен, иначе CPU */
+  encoder?: "auto" | "nvenc" | "cpu";
+  /** native = быстрый движок без Chrome; chrome = старый Remotion-рендер */
+  renderEngine?: "native" | "chrome";
 };
 
 export function getSettings(): Settings {

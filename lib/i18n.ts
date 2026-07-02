@@ -70,7 +70,7 @@ const en = {
   // right panel empty
   howItWorks: "How it works",
   howItWorksText:
-    "1. Upload one or more videos.\n2. Deepgram transcribes speech with per-word timings.\n3. Pick a caption style and fix the text.\n4. Hit “Render” — Remotion burns the captions into the video.",
+    "1. Upload one or more videos.\n2. Deepgram transcribes speech with per-word timings.\n3. Pick a caption style and fix the text.\n4. Hit “Render” — captions are burned in natively, several videos at once.",
 
   // settings modal
   deepgramKey: "Deepgram API key",
@@ -87,6 +87,18 @@ const en = {
   save: "Save",
   saving: "Saving…",
   uiLanguage: "Interface language",
+
+  // render settings
+  renderSection: "Rendering",
+  parallelRenders: "Videos rendered at once",
+  parallelHint: "3 is the sweet spot for a modern PC. Lower it if the computer gets sluggish.",
+  encoderLabel: "Video encoder",
+  encoderAuto: "Auto (GPU if available)",
+  encoderNvenc: "GPU (NVIDIA NVENC)",
+  encoderCpu: "CPU (x264)",
+  engineLabel: "Render engine",
+  engineNative: "Fast (native)",
+  engineChrome: "Compatible (Chrome, slow)",
 
   // style names
   styleNames: {} as Record<string, string>,
@@ -154,7 +166,7 @@ const uk: Dict = {
 
   howItWorks: "Як це працює",
   howItWorksText:
-    "1. Завантаж одне або кілька відео.\n2. Deepgram розпізнає мову з таймінгами по словах.\n3. Обери стиль субтитрів і поправ текст.\n4. Натисни «Рендер» — Remotion вшиє субтитри у відео.",
+    "1. Завантаж одне або кілька відео.\n2. Deepgram розпізнає мову з таймінгами по словах.\n3. Обери стиль субтитрів і поправ текст.\n4. Натисни «Рендер» — субтитри вшиваються нативно, кілька відео одночасно.",
 
   deepgramKey: "Deepgram API key",
   keySet: "Ключ встановлено:",
@@ -170,6 +182,17 @@ const uk: Dict = {
   save: "Зберегти",
   saving: "Зберігаємо…",
   uiLanguage: "Мова інтерфейсу",
+
+  renderSection: "Рендер",
+  parallelRenders: "Відео одночасно",
+  parallelHint: "3 — оптимально для сучасного ПК. Зменш, якщо компʼютер починає гальмувати.",
+  encoderLabel: "Відеокодек",
+  encoderAuto: "Авто (GPU, якщо є)",
+  encoderNvenc: "GPU (NVIDIA NVENC)",
+  encoderCpu: "CPU (x264)",
+  engineLabel: "Рушій рендера",
+  engineNative: "Швидкий (нативний)",
+  engineChrome: "Сумісний (Chrome, повільний)",
 
   styleNames: {
     classic: "Класика",
