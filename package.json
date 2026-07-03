@@ -30,7 +30,7 @@
       "remotion-bundle/**",
       "fonts/**",
       "public/**",
-      "next.config.ts",
+      "next.config.mjs",
       "!workspace/**",
       "!dist/**",
       "!.env*"
