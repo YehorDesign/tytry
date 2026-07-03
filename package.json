@@ -29,6 +29,7 @@
       ".next/**",
       "remotion-bundle/**",
       "fonts/**",
+      "public/**",
       "next.config.ts",
       "!workspace/**",
       "!dist/**",

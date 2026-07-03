@@ -10,6 +10,7 @@ const FONTS_DIR = path.join(APP_ROOT, "fonts");
 
 // вес → файл; должен совпадать с наборами в remotion/fonts.ts
 const BUILTIN: Record<string, { weights: number[]; italicWeights?: number[] }> = {
+  Gilroy: { weights: [500] },
   Montserrat: { weights: [500, 600, 700, 800, 900] },
   Unbounded: { weights: [700, 900] },
   Oswald: { weights: [600, 700] },
@@ -20,17 +21,25 @@ const BUILTIN: Record<string, { weights: number[]; italicWeights?: number[] }> =
 
 let registered = false;
 
+function registerFirst(baseName: string, alias: string) {
+  for (const ext of [".ttf", ".otf"]) {
+    const file = path.join(FONTS_DIR, `${baseName}${ext}`);
+    if (fs.existsSync(file)) {
+      GlobalFonts.registerFromPath(file, alias);
+      return;
+    }
+  }
+}
+
 export function ensureFontsRegistered() {
   if (registered) return;
   registered = true;
   for (const [family, { weights, italicWeights }] of Object.entries(BUILTIN)) {
     for (const w of weights) {
-      const file = path.join(FONTS_DIR, `${family}-${w}.ttf`);
-      if (fs.existsSync(file)) GlobalFonts.registerFromPath(file, `${family}-${w}`);
+      registerFirst(`${family}-${w}`, `${family}-${w}`);
     }
     for (const w of italicWeights ?? []) {
-      const file = path.join(FONTS_DIR, `${family}-${w}i.ttf`);
-      if (fs.existsSync(file)) GlobalFonts.registerFromPath(file, `${family}-${w}i`);
+      registerFirst(`${family}-${w}i`, `${family}-${w}i`);
     }
   }
 }

@@ -11,6 +11,8 @@ fs.rmSync(outDir, { recursive: true, force: true });
 
 const result = await bundle({
   entryPoint: path.join(root, "remotion", "index.ts"),
+  // локальные шрифты (Gilroy) из public/ должны попасть в бандл
+  publicDir: path.join(root, "public"),
   outDir,
   onProgress: (p) => {
     if (p % 20 === 0) console.log(`bundling: ${p}%`);

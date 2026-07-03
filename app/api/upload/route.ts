@@ -4,6 +4,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { THUMBS_DIR, UPLOADS_DIR, ensureWorkspace, saveProject } from "@/lib/store";
 import { extractThumbnail, probeVideo } from "@/lib/ffmpeg";
+import { getDefaultStyle } from "@/lib/settings";
 import type { Project } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -44,8 +45,7 @@ export async function POST(req: NextRequest) {
           ...meta,
         },
         words: null,
-        styleId: "hormozi",
-        overrides: {},
+        ...getDefaultStyle(),
       };
       saveProject(project);
       created.push(project);

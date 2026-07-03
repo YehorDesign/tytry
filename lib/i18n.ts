@@ -48,6 +48,13 @@ const en = {
   uppercase: "UPPERCASE",
   resetAdjustments: "↺ Reset adjustments",
   sampleText: "Sample text",
+  globalSection: "For all videos",
+  applyToAll: "⤢ Apply to all videos",
+  applyToAllDone: "✓ Applied to all videos",
+  saveDefaults: "★ Save as default for new",
+  saveDefaultsDone: "✓ Saved — new videos will use it",
+  globalHint:
+    "Current preset, font, size and position: apply to every video in the list or make them the default for new uploads.",
 
   // editor
   editorHint: "Click a word to fix it. An emptied word gets deleted. Click a timestamp to jump there.",
@@ -148,6 +155,13 @@ const uk: Dict = {
   uppercase: "ВЕЛИКИМИ",
   resetAdjustments: "↺ Скинути налаштування",
   sampleText: "Приклад тексту",
+  globalSection: "Для всіх відео",
+  applyToAll: "⤢ Застосувати до всіх відео",
+  applyToAllDone: "✓ Застосовано до всіх відео",
+  saveDefaults: "★ Типовий для нових",
+  saveDefaultsDone: "✓ Збережено — нові відео будуть такими",
+  globalHint:
+    "Поточний пресет, шрифт, розмір і позиція: застосуй до всіх відео у списку або зроби типовими для нових завантажень.",
 
   editorHint: "Клацни слово, щоб виправити. Порожнє слово видаляється. Клік по таймкоду — перехід у плеєрі.",
   noCaptions: "Субтитрів поки немає. Натисни «Розпізнати мову», щоб отримати текст з аудіо.",

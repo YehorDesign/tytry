@@ -417,6 +417,29 @@ export function resolveStyle(
   return merged;
 }
 
+/** Отбирает из произвольного JSON только допустимые поля StyleOverrides. */
+export function sanitizeOverrides(input: unknown): StyleOverrides {
+  if (!input || typeof input !== "object") return {};
+  const src = input as Record<string, unknown>;
+  const out: StyleOverrides = {};
+  if (typeof src.fontFamily === "string" && src.fontFamily.trim()) {
+    out.fontFamily = src.fontFamily.trim();
+  }
+  if (typeof src.fontSizeRatio === "number" && Number.isFinite(src.fontSizeRatio)) {
+    out.fontSizeRatio = Math.min(Math.max(src.fontSizeRatio, 0.01), 0.2);
+  }
+  if (typeof src.uppercase === "boolean") out.uppercase = src.uppercase;
+  if (typeof src.textColor === "string") out.textColor = src.textColor;
+  if (typeof src.highlightColor === "string") out.highlightColor = src.highlightColor;
+  if (typeof src.maxWordsPerPage === "number" && Number.isFinite(src.maxWordsPerPage)) {
+    out.maxWordsPerPage = Math.min(Math.max(Math.round(src.maxWordsPerPage), 1), 12);
+  }
+  if (typeof src.positionY === "number" && Number.isFinite(src.positionY)) {
+    out.positionY = Math.min(Math.max(src.positionY, 0), 1);
+  }
+  return out;
+}
+
 function stripUndefined<T extends object>(obj: T): T {
   const out = {} as T;
   for (const [k, v] of Object.entries(obj)) {

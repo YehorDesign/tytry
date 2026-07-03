@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { WORKSPACE, ensureWorkspace } from "./store";
+import type { StyleOverrides } from "./types";
 
 const SETTINGS_FILE = path.join(WORKSPACE, "settings.json");
 
@@ -14,7 +15,20 @@ export type Settings = {
   encoder?: "auto" | "nvenc" | "cpu";
   /** native = быстрый движок без Chrome; chrome = старый Remotion-рендер */
   renderEngine?: "native" | "chrome";
+  /** пресет субтитров для новых проектов */
+  defaultStyleId?: string;
+  /** правки стиля (шрифт, размер, позиция…) для новых проектов */
+  defaultOverrides?: StyleOverrides;
 };
+
+/** Стиль для новых проектов: сохранённый пользователем или Gilroy поверх «Підсвітки». */
+export function getDefaultStyle(): { styleId: string; overrides: StyleOverrides } {
+  const s = getSettings();
+  return {
+    styleId: s.defaultStyleId ?? "hormozi",
+    overrides: s.defaultOverrides ?? { fontFamily: "Gilroy" },
+  };
+}
 
 export function getSettings(): Settings {
   try {

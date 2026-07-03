@@ -1,3 +1,4 @@
+import { continueRender, delayRender, staticFile } from "remotion";
 import { loadFont as loadMontserrat } from "@remotion/google-fonts/Montserrat";
 import { loadFont as loadUnbounded } from "@remotion/google-fonts/Unbounded";
 import { loadFont as loadOswald } from "@remotion/google-fonts/Oswald";
@@ -34,7 +35,30 @@ const caveat = loadCaveat("normal", {
   subsets: ["latin", "cyrillic"],
 });
 
+// Gilroy — локальный OTF из public/fonts (его нет в Google Fonts).
+// weight "100 900": единственное начертание Medium используется для любого
+// запрошенного веса — так браузер не рисует faux-bold и превью совпадает
+// с нативным рендером.
+if (typeof document !== "undefined") {
+  try {
+    const handle = delayRender("Loading Gilroy");
+    const face = new FontFace(
+      "Gilroy",
+      `url("${staticFile("fonts/Gilroy-500.otf")}") format("opentype")`,
+      { weight: "100 900" }
+    );
+    face
+      .load()
+      .then((loaded) => document.fonts.add(loaded))
+      .catch(() => {})
+      .then(() => continueRender(handle));
+  } catch {
+    // вне контекста Remotion/браузера шрифт не нужен
+  }
+}
+
 export const FONT_FAMILIES: Record<string, string> = {
+  Gilroy: "Gilroy",
   Montserrat: montserrat.fontFamily,
   Unbounded: unbounded.fontFamily,
   Oswald: oswald.fontFamily,
@@ -45,6 +69,7 @@ export const FONT_FAMILIES: Record<string, string> = {
 
 /** Вбудовані шрифти для випадаючого списку в UI */
 export const BUILTIN_FONTS = [
+  "Gilroy",
   "Montserrat",
   "Unbounded",
   "Oswald",

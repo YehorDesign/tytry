@@ -45,6 +45,10 @@ export default function Home() {
   const [words, setWords] = useState<Word[]>([]);
   const [styleId, setStyleId] = useState("hormozi");
   const [overrides, setOverrides] = useState<StyleOverrides>({});
+  // глобальные правки «по умолчанию» — подставляются при смене пресета и для новых видео
+  const [defaultOverrides, setDefaultOverrides] = useState<StyleOverrides>({
+    fontFamily: "Gilroy",
+  });
 
   const playerRef = useRef<PlayerRef | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -103,6 +107,7 @@ export default function Home() {
         parallelRenders?: number;
         encoder?: string;
         renderEngine?: string;
+        defaultOverrides?: StyleOverrides;
       };
       setHasKey(data.hasDeepgramKey);
       setMaskedKey(data.maskedKey);
@@ -110,6 +115,7 @@ export default function Home() {
       setParallelRenders(data.parallelRenders ?? 3);
       setEncoder(data.encoder ?? "auto");
       setRenderEngine(data.renderEngine ?? "native");
+      if (data.defaultOverrides) setDefaultOverrides(data.defaultOverrides);
     } catch {
       // ignore
     }
@@ -191,13 +197,34 @@ export default function Home() {
     scheduleSave({ words: next, styleId, overrides });
   };
   const handleStyleChange = (next: string) => {
+    // при смене пресета правки не обнуляем, а ставим глобальные типовые
     setStyleId(next);
-    scheduleSave({ words, styleId: next, overrides: {} });
+    setOverrides(defaultOverrides);
+    scheduleSave({ words, styleId: next, overrides: defaultOverrides });
   };
   const handleOverridesChange = (next: StyleOverrides) => {
     setOverrides(next);
     scheduleSave({ words, styleId, overrides: next });
   };
+
+  // ── глобальные действия со стилем ──
+  const applyStyleToAll = useCallback(async () => {
+    await fetch("/api/projects/apply-style", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ styleId, overrides }),
+    });
+    await refresh();
+  }, [styleId, overrides, refresh]);
+
+  const saveStyleDefaults = useCallback(async () => {
+    await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ defaultStyleId: styleId, defaultOverrides: overrides }),
+    });
+    setDefaultOverrides(overrides);
+  }, [styleId, overrides]);
 
   // ── загрузка файлов ──
   const uploadFiles = useCallback(
@@ -497,6 +524,8 @@ export default function Home() {
                     overrides={overrides}
                     onStyleChange={handleStyleChange}
                     onOverridesChange={handleOverridesChange}
+                    onApplyToAll={applyStyleToAll}
+                    onSaveDefaults={saveStyleDefaults}
                   />
                 ) : (
                   <CaptionEditor

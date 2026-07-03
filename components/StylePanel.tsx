@@ -99,9 +99,37 @@ export const StylePanel: React.FC<{
   overrides: StyleOverrides;
   onStyleChange: (styleId: string) => void;
   onOverridesChange: (overrides: StyleOverrides) => void;
-}> = ({ t, styleId, overrides, onStyleChange, onOverridesChange }) => {
+  onApplyToAll: () => Promise<void>;
+  onSaveDefaults: () => Promise<void>;
+}> = ({
+  t,
+  styleId,
+  overrides,
+  onStyleChange,
+  onOverridesChange,
+  onApplyToAll,
+  onSaveDefaults,
+}) => {
   const resolved = resolveStyle(styleId, overrides);
   const [systemFonts, setSystemFonts] = useState<string[]>([]);
+  // краткое «✓ готово» на кнопках глобальных действий
+  const [appliedFlash, setAppliedFlash] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const runGlobal = async (
+    action: () => Promise<void>,
+    flash: (on: boolean) => void
+  ) => {
+    setBusy(true);
+    try {
+      await action();
+      flash(true);
+      setTimeout(() => flash(false), 2500);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     fetch("/api/fonts")
@@ -123,10 +151,7 @@ export const StylePanel: React.FC<{
             selected={s.id === styleId}
             label={t.styleNames[s.id] ?? s.name}
             sample={t.sampleText}
-            onClick={() => {
-              onStyleChange(s.id);
-              onOverridesChange({}); // сбрасываем правки при смене пресета
-            }}
+            onClick={() => onStyleChange(s.id)}
           />
         ))}
       </div>
@@ -234,6 +259,28 @@ export const StylePanel: React.FC<{
           {t.resetAdjustments}
         </button>
       )}
+
+      <div style={{ height: 18 }} />
+      <div className="section-label">{t.globalSection}</div>
+      <p className="hint" style={{ marginBottom: 8 }}>
+        {t.globalHint}
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <button
+          className="btn btn-sm"
+          disabled={busy}
+          onClick={() => runGlobal(onApplyToAll, setAppliedFlash)}
+        >
+          {appliedFlash ? t.applyToAllDone : t.applyToAll}
+        </button>
+        <button
+          className="btn btn-sm"
+          disabled={busy}
+          onClick={() => runGlobal(onSaveDefaults, setSavedFlash)}
+        >
+          {savedFlash ? t.saveDefaultsDone : t.saveDefaults}
+        </button>
+      </div>
     </div>
   );
 };

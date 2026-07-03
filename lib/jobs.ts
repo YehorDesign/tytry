@@ -128,6 +128,8 @@ async function getBundle(): Promise<string> {
       const { bundle } = await import("@remotion/bundler");
       return bundle({
         entryPoint: path.join(APP_ROOT, "remotion", "index.ts"),
+        // локальные шрифты (Gilroy) лежат в public/ и нужны внутри бандла
+        publicDir: path.join(APP_ROOT, "public"),
         onProgress: () => {},
       });
     })();

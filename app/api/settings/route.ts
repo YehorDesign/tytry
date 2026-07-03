@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDeepgramKey, getSettings, saveSettings } from "@/lib/settings";
+import { CAPTION_STYLES, sanitizeOverrides } from "@/lib/styles";
+import type { StyleOverrides } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +22,8 @@ function payload() {
     parallelRenders: s.parallelRenders ?? 3,
     encoder: s.encoder ?? "auto",
     renderEngine: s.renderEngine ?? "native",
+    defaultStyleId: s.defaultStyleId ?? "hormozi",
+    defaultOverrides: s.defaultOverrides ?? { fontFamily: "Gilroy" },
   };
 }
 
@@ -34,6 +38,8 @@ export async function POST(req: NextRequest) {
     parallelRenders?: number;
     encoder?: string;
     renderEngine?: string;
+    defaultStyleId?: string;
+    defaultOverrides?: StyleOverrides;
   };
   const patch: Partial<import("@/lib/settings").Settings> = {};
   if (typeof body.deepgramApiKey === "string") {
@@ -50,6 +56,15 @@ export async function POST(req: NextRequest) {
   }
   if (body.renderEngine === "native" || body.renderEngine === "chrome") {
     patch.renderEngine = body.renderEngine;
+  }
+  if (
+    typeof body.defaultStyleId === "string" &&
+    CAPTION_STYLES.some((s) => s.id === body.defaultStyleId)
+  ) {
+    patch.defaultStyleId = body.defaultStyleId;
+  }
+  if (body.defaultOverrides !== undefined) {
+    patch.defaultOverrides = sanitizeOverrides(body.defaultOverrides);
   }
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "Nothing to save" }, { status: 400 });
