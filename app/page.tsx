@@ -26,7 +26,7 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<"style" | "text">("style");
   const [language, setLanguage] = useState("auto");
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
   const [dragover, setDragover] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
 
@@ -54,6 +54,8 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedIdRef = useRef<string | null>(null);
+  const transcribeQueueRef = useRef<Project[]>([]);
+  const activeTranscribesRef = useRef(0);
 
   const selected = projects.find((p) => p.id === selectedId) ?? null;
 
@@ -226,37 +228,69 @@ export default function Home() {
     setDefaultOverrides(overrides);
   }, [styleId, overrides]);
 
-  // ── загрузка файлов ──
+  // ── очередь транскрибации: не больше 2 одновременно ──
+  const pumpTranscribe = useCallback(() => {
+    const MAX_PARALLEL = 2;
+    while (
+      activeTranscribesRef.current < MAX_PARALLEL &&
+      transcribeQueueRef.current.length > 0
+    ) {
+      const p = transcribeQueueRef.current.shift()!;
+      activeTranscribesRef.current++;
+      fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: p.id, language }),
+      })
+        .catch(() => {})
+        .finally(() => {
+          activeTranscribesRef.current--;
+          refresh().catch(() => {});
+          pumpTranscribe();
+        });
+    }
+  }, [language, refresh]);
+
+  // ── загрузка файлов: пачками, чтобы не держать всё в памяти ──
   const uploadFiles = useCallback(
     async (files: FileList | File[]) => {
       const list = Array.from(files).filter((f) =>
         /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(f.name)
       );
       if (list.length === 0) return;
-      setUploading(true);
+      const BATCH = 3;
+      setUploading(`0/${list.length}`);
       try {
-        const formData = new FormData();
-        for (const f of list) formData.append("files", f);
-        const res = await fetch("/api/upload", { method: "POST", body: formData });
-        const data = (await res.json()) as { created: Project[] };
-        await refresh();
-        if (data.created.length > 0 && !selectedIdRef.current) {
-          selectProject(data.created[0]);
+        const createdAll: Project[] = [];
+        for (let i = 0; i < list.length; i += BATCH) {
+          const batch = list.slice(i, i + BATCH);
+          const formData = new FormData();
+          for (const f of batch) formData.append("files", f);
+          try {
+            const res = await fetch("/api/upload", { method: "POST", body: formData });
+            const data = (await res.json()) as {
+              created: Project[];
+              errors?: { name: string; error: string }[];
+            };
+            if (data.errors?.length) console.warn("Upload errors:", data.errors);
+            createdAll.push(...data.created);
+            transcribeQueueRef.current.push(...data.created);
+            pumpTranscribe();
+          } catch (err) {
+            console.warn("Upload batch failed:", batch.map((f) => f.name), err);
+          }
+          setUploading(`${Math.min(i + BATCH, list.length)}/${list.length}`);
+          if (i === 0 || (i / BATCH) % 5 === 0) await refresh();
         }
-        for (const p of data.created) {
-          fetch("/api/transcribe", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: p.id, language }),
-          })
-            .then(() => refresh())
-            .catch(() => {});
+        await refresh();
+        if (createdAll.length > 0 && !selectedIdRef.current) {
+          selectProject(createdAll[0]);
         }
       } finally {
-        setUploading(false);
+        setUploading(null);
       }
     },
-    [language, refresh, selectProject]
+    [language, refresh, selectProject, pumpTranscribe]
   );
 
   const transcribe = async (id: string) => {
@@ -372,9 +406,9 @@ export default function Home() {
         <button
           className="btn"
           onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
+          disabled={!!uploading}
         >
-          {uploading ? t.uploading : t.addVideos}
+          {uploading ? `${t.uploading} ${uploading}` : t.addVideos}
         </button>
         <button
           className="btn btn-accent"
