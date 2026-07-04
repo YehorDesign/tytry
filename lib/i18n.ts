@@ -101,6 +101,10 @@ const en = {
   musicDeleteFromLibrary: "Delete track from library",
   confirmDeleteTrack: "Delete this track from the library?",
 
+  // render file name
+  renderNamePlaceholder: "Output file name",
+  renderNameTitle: "This becomes the rendered file name",
+
   // silence
   deleteSilence: "✂ Delete silence",
   deleteSilenceTitle: "Trim silence at the start and end using transcription timings",
@@ -247,6 +251,9 @@ const uk: Dict = {
   musicLibraryLabel: "Бібліотека",
   musicDeleteFromLibrary: "Видалити трек з бібліотеки",
   confirmDeleteTrack: "Видалити цей трек з бібліотеки?",
+
+  renderNamePlaceholder: "Назва файлу рендера",
+  renderNameTitle: "Так називатиметься відрендерений файл",
 
   deleteSilence: "✂ Прибрати тишу",
   deleteSilenceTitle: "Обрізати тишу на початку та в кінці за таймінгами розпізнавання",

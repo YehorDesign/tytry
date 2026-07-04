@@ -54,6 +54,7 @@ export default function Home() {
   const [savingSettings, setSavingSettings] = useState(false);
 
   // локальное (редактируемое) состояние выбранного проекта
+  const [projectName, setProjectName] = useState("");
   const [words, setWords] = useState<Word[]>([]);
   const [styleId, setStyleId] = useState("hormozi");
   const [overrides, setOverrides] = useState<StyleOverrides>({});
@@ -226,6 +227,7 @@ export default function Home() {
     }
     selectedIdRef.current = project.id;
     setSelectedId(project.id);
+    setProjectName(project.name);
     setWords(project.words ?? []);
     setStyleId(project.styleId);
     setOverrides(project.overrides ?? {});
@@ -254,6 +256,21 @@ export default function Home() {
     setWords(next);
     scheduleSave({ words: next, styleId, overrides });
   };
+
+  // имя проекта = имя файла рендера (<назва>_subtitled.mp4)
+  const handleNameChange = (name: string) => {
+    setProjectName(name);
+    // сразу обновляем карточку в списке, не дожидаясь поллинга
+    setProjects((prev) =>
+      prev.map((p) => (p.id === selectedIdRef.current ? { ...p, name } : p))
+    );
+    scheduleSave({ name });
+  };
+
+  // как resolveOutputPath на сервере: что реально попадёт в имя файла
+  const renderFileNamePreview =
+    (projectName.replace(/[<>:"/\\|?* -]/g, "_").trim().slice(0, 60) ||
+      selected?.id) ?? "";
 
   // ── стиль: без выделения правим проект, с выделением — только выбранные фразы ──
   const selectionActive = selectedWordIds.size > 0;
@@ -916,6 +933,24 @@ export default function Home() {
 
         {/* ───── сцена ───── */}
         <main className="stage">
+          {selected && (
+            <div className="stage-head">
+              <input
+                className="name-input"
+                value={projectName}
+                spellCheck={false}
+                placeholder={t.renderNamePlaceholder}
+                title={t.renderNameTitle}
+                onChange={(e) => handleNameChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
+              />
+              <span className="hint render-name-hint">
+                → {renderFileNamePreview}_subtitled.mp4
+              </span>
+            </div>
+          )}
           <div className="stage-canvas">
             {selected ? (
               <PreviewPlayer
