@@ -883,6 +883,13 @@ input[type="color"] {
   background: linear-gradient(180deg, #2a2138, #211a2c);
   border-color: #4a3a66;
 }
+.clip-block.selected {
+  border-color: #6fa8dc;
+  box-shadow: 0 0 0 1px rgba(111, 168, 220, 0.5), 0 0 10px rgba(111, 168, 220, 0.18);
+}
+.clip-block.selected .clip-block-text {
+  color: #d6e8f7;
+}
 .clip-block-text {
   flex: 1;
   padding: 0 4px;

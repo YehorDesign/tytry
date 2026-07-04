@@ -105,6 +105,14 @@ const en = {
   renderNamePlaceholder: "Output file name",
   renderNameTitle: "This becomes the rendered file name",
 
+  // frame (zoom / position)
+  frameSection: "Frame",
+  frameZoom: "Zoom",
+  framePosX: "Horizontal",
+  framePosY: "Vertical",
+  frameReset: "↺ Reset frame",
+  frameSelectHint: "Click a clip on the timeline to zoom / reposition it.",
+
   // silence
   deleteSilence: "✂ Delete silence",
   deleteSilenceTitle: "Trim silence at the start and end using transcription timings",
@@ -254,6 +262,13 @@ const uk: Dict = {
 
   renderNamePlaceholder: "Назва файлу рендера",
   renderNameTitle: "Так називатиметься відрендерений файл",
+
+  frameSection: "Кадр",
+  frameZoom: "Зум",
+  framePosX: "Горизонталь",
+  framePosY: "Вертикаль",
+  frameReset: "↺ Скинути кадр",
+  frameSelectHint: "Клікни кліп на таймлайні, щоб зумити / рухати кадр.",
 
   deleteSilence: "✂ Прибрати тишу",
   deleteSilenceTitle: "Обрізати тишу на початку та в кінці за таймінгами розпізнавання",

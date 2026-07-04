@@ -140,6 +140,12 @@ export type TimelineClip = {
   height: number;
   /** есть ли аудиодорожка в исходнике */
   hasAudio: boolean;
+  /** масштаб кадра: 1 = вписан в канвас, >1 = приближение (края обрезаются) */
+  zoom?: number;
+  /** сдвиг кадра по горизонтали, доля ширины канваса (-0.5..0.5) */
+  panX?: number;
+  /** сдвиг кадра по вертикали, доля высоты канваса */
+  panY?: number;
 };
 
 /** Музыка проекта: ссылка на трек из библиотеки */
@@ -200,7 +206,15 @@ export type CaptionInputProps = {
   height: number;
   durationMs: number;
   /** превью монтажа: клипы встык вместо videoSrc (финальный рендер получает склейку) */
-  clips?: { src: string; kind: "video" | "image"; inMs: number; outMs: number }[];
+  clips?: {
+    src: string;
+    kind: "video" | "image";
+    inMs: number;
+    outMs: number;
+    zoom?: number;
+    panX?: number;
+    panY?: number;
+  }[];
   /** превью музыки */
   musicSrc?: string | null;
   musicVolume?: number;

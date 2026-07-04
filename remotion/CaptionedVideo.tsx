@@ -64,23 +64,33 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
       {clipSequences ? (
-        clipSequences.map((c) => (
-          <Sequence key={c.key} from={c.fromFrame} durationInFrames={c.durFrames}>
-            {c.kind === "image" ? (
-              <Img
-                src={c.src}
-                style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              />
-            ) : (
-              <OffthreadVideo
-                src={c.src}
-                startFrom={Math.round((c.inMs / 1000) * fps)}
-                endAt={Math.round((c.outMs / 1000) * fps)}
-                style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              />
-            )}
-          </Sequence>
-        ))
+        clipSequences.map((c) => {
+          // зум/сдвиг кадра — та же математика, что в ffmpeg-склейке:
+          // translate в долях канваса, затем scale вокруг центра
+          const clipStyle: React.CSSProperties = {
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+            transform:
+              (c.zoom ?? 1) !== 1 || c.panX || c.panY
+                ? `translate(${(c.panX ?? 0) * 100}%, ${(c.panY ?? 0) * 100}%) scale(${c.zoom ?? 1})`
+                : undefined,
+          };
+          return (
+            <Sequence key={c.key} from={c.fromFrame} durationInFrames={c.durFrames}>
+              {c.kind === "image" ? (
+                <Img src={c.src} style={clipStyle} />
+              ) : (
+                <OffthreadVideo
+                  src={c.src}
+                  startFrom={Math.round((c.inMs / 1000) * fps)}
+                  endAt={Math.round((c.outMs / 1000) * fps)}
+                  style={clipStyle}
+                />
+              )}
+            </Sequence>
+          );
+        })
       ) : (
         <OffthreadVideo
           src={videoSrc}

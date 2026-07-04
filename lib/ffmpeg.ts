@@ -98,6 +98,12 @@ export type FlattenClip = {
   inMs: number;
   outMs: number;
   hasAudio: boolean;
+  /** размеры исходника — для расчёта вписывания и зума */
+  width: number;
+  height: number;
+  zoom?: number;
+  panX?: number;
+  panY?: number;
 };
 
 type FilterGraph = {
@@ -135,9 +141,18 @@ function buildConcatGraph(
         clip.kind === "image"
           ? ""
           : `trim=start=${(clip.inMs / 1000).toFixed(3)}:end=${(clip.outMs / 1000).toFixed(3)},setpts=PTS-STARTPTS,`;
+      // вписываем в канвас с учётом зума и сдвига: scale → overlay на чёрный фон
+      // (края за пределами канваса обрезаются overlay-ем — это и есть «кроп»)
+      const fit = Math.min(width / clip.width, height / clip.height);
+      const zoom = clip.zoom ?? 1;
+      const tw = Math.max(Math.round((clip.width * fit * zoom) / 2) * 2, 2);
+      const th = Math.max(Math.round((clip.height * fit * zoom) / 2) * 2, 2);
+      const ox = Math.round((width - tw) / 2 + (clip.panX ?? 0) * width);
+      const oy = Math.round((height - th) / 2 + (clip.panY ?? 0) * height);
       filters.push(
-        `[${i}:v]${trim}scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps},format=yuv420p[v${i}]`
+        `[${i}:v]${trim}scale=${tw}:${th},setsar=1,fps=${fps}[vs${i}]`,
+        `color=black:s=${width}x${height}:r=${fps}:d=${durSec.toFixed(3)}[bg${i}]`,
+        `[bg${i}][vs${i}]overlay=${ox}:${oy}:shortest=1,format=yuv420p[v${i}]`
       );
     }
 

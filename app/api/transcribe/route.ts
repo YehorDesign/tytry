@@ -26,6 +26,8 @@ export async function POST(req: NextRequest) {
           inMs: c.inMs,
           outMs: c.outMs,
           hasAudio: c.hasAudio,
+          width: c.width,
+          height: c.height,
         })),
         audioPath
       );

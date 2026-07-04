@@ -67,6 +67,8 @@ export default function Home() {
 
   // выделение фраз на таймлайне (по id слов)
   const [selectedWordIds, setSelectedWordIds] = useState<Set<string>>(new Set());
+  // выбранный клип (панель «Кадр»: зум/позиция)
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
 
   // мультивыбор проектов в списке
   const [railSelectMode, setRailSelectMode] = useState(false);
@@ -234,6 +236,7 @@ export default function Home() {
     setClips(project.clips && project.clips.length > 0 ? project.clips : null);
     setMusic(project.music ?? null);
     setSelectedWordIds(new Set());
+    setSelectedClipId(null);
     setSilenceMsg(null);
     setCurrentMs(0);
   }, []);
@@ -351,6 +354,24 @@ export default function Home() {
   const handleClipsChange = (next: TimelineClip[]) => {
     setClips(next);
     scheduleSave({ clips: next });
+  };
+
+  // ── «Кадр»: зум/позиция выбранного клипа ──
+  // у классического проекта клип один — берём его без выбора на таймлайне
+  const frameClips = clips ?? (selected ? getClips(selected) : null);
+  const frameClip = frameClips
+    ? clips
+      ? frameClips.find((c) => c.id === selectedClipId) ??
+        (frameClips.length === 1 ? frameClips[0] : null)
+      : frameClips[0]
+    : null;
+
+  const updateFrame = (patch: Partial<Pick<TimelineClip, "zoom" | "panX" | "panY">>) => {
+    if (!frameClips || !frameClip) return;
+    const next = frameClips.map((c) =>
+      c.id === frameClip.id ? { ...c, ...patch } : c
+    );
+    handleClipsChange(next);
   };
 
   // ── музыка ──
@@ -989,10 +1010,12 @@ export default function Home() {
               selectedWordIds={selectedWordIds}
               clips={clips}
               music={music}
+              selectedClipId={selectedClipId}
               onWordsChange={handleWordsChange}
               onSelectionChange={setSelectedWordIds}
               onDeleteSelected={deleteSelectedPhrases}
               onClipsChange={handleClipsChange}
+              onClipSelect={setSelectedClipId}
               onSeek={seek}
             />
           )}
@@ -1072,6 +1095,72 @@ export default function Home() {
                   </button>
                   {silenceMsg && <p className="hint">{silenceMsg}</p>}
                 </div>
+
+                <div style={{ height: 14 }} />
+                <div className="section-label">{t.frameSection}</div>
+                {frameClip ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {clips && clips.length > 1 && (
+                      <p className="hint" style={{ marginBottom: 4 }}>
+                        🎞 {frameClip.originalName}
+                      </p>
+                    )}
+                    <div className="control-row">
+                      <span className="control-label">{t.frameZoom}</span>
+                      <input
+                        type="range"
+                        min={0.5}
+                        max={3}
+                        step={0.05}
+                        value={frameClip.zoom ?? 1}
+                        onChange={(e) => updateFrame({ zoom: Number(e.target.value) })}
+                      />
+                      <span className="control-value">
+                        {Math.round((frameClip.zoom ?? 1) * 100)}%
+                      </span>
+                    </div>
+                    <div className="control-row">
+                      <span className="control-label">{t.framePosX}</span>
+                      <input
+                        type="range"
+                        min={-0.5}
+                        max={0.5}
+                        step={0.01}
+                        value={frameClip.panX ?? 0}
+                        onChange={(e) => updateFrame({ panX: Number(e.target.value) })}
+                      />
+                      <span className="control-value">
+                        {Math.round((frameClip.panX ?? 0) * 100)}%
+                      </span>
+                    </div>
+                    <div className="control-row">
+                      <span className="control-label">{t.framePosY}</span>
+                      <input
+                        type="range"
+                        min={-0.5}
+                        max={0.5}
+                        step={0.01}
+                        value={frameClip.panY ?? 0}
+                        onChange={(e) => updateFrame({ panY: Number(e.target.value) })}
+                      />
+                      <span className="control-value">
+                        {Math.round((frameClip.panY ?? 0) * 100)}%
+                      </span>
+                    </div>
+                    {((frameClip.zoom ?? 1) !== 1 ||
+                      (frameClip.panX ?? 0) !== 0 ||
+                      (frameClip.panY ?? 0) !== 0) && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => updateFrame({ zoom: 1, panX: 0, panY: 0 })}
+                      >
+                        {t.frameReset}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="hint">{t.frameSelectHint}</p>
+                )}
 
                 <div style={{ height: 14 }} />
                 <div className="section-label">{t.musicSection}</div>

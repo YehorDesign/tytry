@@ -37,10 +37,12 @@ export const Timeline: React.FC<{
   selectedWordIds: Set<string>;
   clips: TimelineClip[] | null; // null — классический проект, трек клипов скрыт
   music: ProjectMusic | null;
+  selectedClipId: string | null;
   onWordsChange: (words: Word[]) => void;
   onSelectionChange: (ids: Set<string>) => void;
   onDeleteSelected: () => void;
   onClipsChange: (clips: TimelineClip[]) => void;
+  onClipSelect: (id: string | null) => void;
   onSeek: (ms: number) => void;
 }> = ({
   t,
@@ -51,10 +53,12 @@ export const Timeline: React.FC<{
   selectedWordIds,
   clips,
   music,
+  selectedClipId,
   onWordsChange,
   onSelectionChange,
   onDeleteSelected,
   onClipsChange,
+  onClipSelect,
   onSeek,
 }) => {
   const [pps, setPps] = useState(60); // пикселей на секунду
@@ -278,6 +282,9 @@ export const Timeline: React.FC<{
       initial.deltaMs = pxToMs(ev.clientX - initial.startX);
       setClipDrag(null);
       if (!initial.moved) {
+        // клик: выбрать клип (для панели «Кадр») и перемотать к его началу
+        const id = initial.clips[clipIndex]?.id ?? null;
+        onClipSelect(id === selectedClipId ? null : id);
         onSeek(clipStarts[clipIndex] ?? 0);
         return;
       }
@@ -311,6 +318,7 @@ export const Timeline: React.FC<{
     const x = e.clientX - rect.left;
     onSeek(Math.max(0, Math.min(pxToMs(x), durationMs)));
     if (selectedWordIds.size > 0) onSelectionChange(new Set());
+    if (selectedClipId) onClipSelect(null);
   };
 
   // секундные деления
@@ -399,7 +407,7 @@ export const Timeline: React.FC<{
                 return (
                   <div
                     key={clip.id}
-                    className={`clip-block ${isDragged ? "dragging" : ""} ${clip.kind === "image" ? "image" : ""}`}
+                    className={`clip-block ${isDragged ? "dragging" : ""} ${clip.kind === "image" ? "image" : ""} ${clip.id === selectedClipId ? "selected" : ""}`}
                     style={{
                       left: msToPx(start),
                       width: Math.max(msToPx(clipDurationMs(clip)), 16),

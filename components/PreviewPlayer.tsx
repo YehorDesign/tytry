@@ -39,6 +39,9 @@ export const PreviewPlayer: React.FC<{
               kind: c.kind,
               inMs: c.inMs,
               outMs: c.outMs,
+              zoom: c.zoom,
+              panX: c.panX,
+              panY: c.panY,
             }))
           : undefined,
       musicSrc: music ? `/api/file/music/${encodeURIComponent(music.fileName)}` : null,

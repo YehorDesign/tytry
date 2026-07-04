@@ -24,6 +24,11 @@ export function getClips(project: Project): TimelineClip[] {
   ];
 }
 
+/** Есть ли у клипа трансформация кадра (зум/сдвиг) */
+export function hasTransform(c: TimelineClip): boolean {
+  return (c.zoom ?? 1) !== 1 || (c.panX ?? 0) !== 0 || (c.panY ?? 0) !== 0;
+}
+
 /** Нужна ли предварительная склейка (иначе рендерим исходник напрямую). */
 export function needsFlatten(project: Project): boolean {
   if (project.music) return true;
@@ -35,7 +40,8 @@ export function needsFlatten(project: Project): boolean {
     c.kind === "image" ||
     c.inMs > 0 ||
     c.outMs < c.sourceDurationMs ||
-    c.fileName !== project.video.fileName
+    c.fileName !== project.video.fileName ||
+    hasTransform(c)
   );
 }
 
