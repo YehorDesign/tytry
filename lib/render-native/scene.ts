@@ -10,6 +10,7 @@ import type {
   CaptionStyle,
   DesignWordAnim,
   DesignWordVariant,
+  Disclaimer,
   StyleOverrides,
   Word,
 } from "../types";
@@ -23,6 +24,8 @@ export type SceneOptions = {
   width: number;
   height: number;
   fps: number;
+  /** мелкий текст поверх всего видео на всю длительность */
+  disclaimer?: Disclaimer | null;
 };
 
 export type Scene = {
@@ -304,10 +307,14 @@ export function createScene(opts: SceneOptions): Scene {
   const display = (s: StyleCtx, text: string) =>
     s.style.uppercase ? text.toUpperCase() : text;
 
+  const disclaimer =
+    opts.disclaimer && opts.disclaimer.text.trim() ? opts.disclaimer : null;
+
   // ── ключ состояния кадра ──
   function frameKey(frame: number): string {
     const page = findActivePage(pages, msOf(frame));
-    if (!page) return "b";
+    // с дисклеймером «пустой» кадр не пуст — это свой (один) кэшируемый кадр
+    if (!page) return disclaimer ? "disc" : "b";
     const idx = pageIndex.get(page) ?? 0;
     const { style } = styleCtxFor(page);
     if (style.mode === "design") {
@@ -710,15 +717,76 @@ export function createScene(opts: SceneOptions): Scene {
     }
   }
 
+  // ── дисклеймер: перенос по словам и отрисовка ──
+  let disclaimerLines: string[] | null = null;
+
+  function layoutDisclaimer(ctx: SKRSContext2D): string[] {
+    if (disclaimerLines) return disclaimerLines;
+    const d = disclaimer!;
+    const size = Math.max(Math.round(width * d.sizeRatio), 8);
+    const font = fontString("Montserrat", 500, size, false);
+    ctx.font = font;
+    const maxW = width * 0.9;
+    const lines: string[] = [];
+    for (const src of d.text.split("\n")) {
+      let line = "";
+      for (const word of src.split(/\s+/).filter(Boolean)) {
+        const probe = line ? `${line} ${word}` : word;
+        if (line && ctx.measureText(probe).width > maxW) {
+          lines.push(line);
+          line = word;
+        } else {
+          line = probe;
+        }
+      }
+      lines.push(line);
+    }
+    disclaimerLines = lines.filter((l, i) => l !== "" || i > 0);
+    return disclaimerLines;
+  }
+
+  function drawDisclaimer(ctx: SKRSContext2D) {
+    if (!disclaimer) return;
+    const size = Math.max(Math.round(width * disclaimer.sizeRatio), 8);
+    const font = fontString("Montserrat", 500, size, false);
+    const lines = layoutDisclaimer(ctx);
+    const lineH = size * 1.3;
+    const { ascent, descent } = fontMetrics(ctx, font, size);
+    const halfLeading = (lineH - (ascent + descent)) / 2;
+    const totalH = lines.length * lineH;
+    const top = disclaimer.positionY * height - totalH / 2;
+    const shadows = [
+      { offsetX: 0, offsetY: size * 0.06, blur: size * 0.2, color: "rgba(0,0,0,0.7)" },
+    ];
+    ctx.font = font;
+    lines.forEach((line, i) => {
+      const w = ctx.measureText(line).width;
+      paintText(ctx, {
+        text: line,
+        x: width / 2 - w / 2,
+        baseline: top + i * lineH + halfLeading + ascent,
+        font,
+        letterSpacingPx: 0,
+        fill: "#FFFFFF",
+        shadows,
+        strokeWidth: 0,
+        strokeColor: "#000",
+      });
+    });
+  }
+
   function drawFrame(ctx: SKRSContext2D, frame: number, offsetY = 0): boolean {
     const page = findActivePage(pages, msOf(frame));
-    if (!page) return false;
-    const idx = pageIndex.get(page) ?? 0;
-    const s = styleCtxFor(page);
+    if (!page && !disclaimer) return false;
     ctx.save();
     if (offsetY) ctx.translate(0, -offsetY);
-    if (s.style.mode === "design") drawDesignPage(ctx, s, page, idx, frame);
-    else drawRegularPage(ctx, s, page, idx, frame);
+    drawDisclaimer(ctx); // под субтитрами
+    if (page) {
+      const idx = pageIndex.get(page) ?? 0;
+      const s = styleCtxFor(page);
+      if (s.style.mode === "design") drawDesignPage(ctx, s, page, idx, frame);
+      else drawRegularPage(ctx, s, page, idx, frame);
+    }
     ctx.restore();
     return true;
   }
@@ -759,6 +827,16 @@ export function createScene(opts: SceneOptions): Scene {
         max = Math.max(max, center + half);
       }
     });
+
+    // дисклеймер тоже живёт в полосе
+    if (disclaimer) {
+      const size = Math.max(Math.round(width * disclaimer.sizeRatio), 8);
+      const totalH = layoutDisclaimer(mctx).length * size * 1.3;
+      const cy = disclaimer.positionY * height;
+      min = Math.min(min, cy - totalH / 2 - size);
+      max = Math.max(max, cy + totalH / 2 + size);
+      margin = Math.max(margin, size * 2);
+    }
 
     if (!Number.isFinite(min)) return { top: 0, height };
     let top = Math.floor(Math.max(min - margin, 0) / 2) * 2;

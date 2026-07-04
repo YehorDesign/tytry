@@ -906,6 +906,23 @@ input[type="color"] {
 .clip-block:hover .timeline-handle::after {
   background: #6fa8dc;
 }
+/* штриховка «продлённого кадра» (freeze) справа на клипе */
+.clip-freeze {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  max-width: 100%;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(111, 168, 220, 0.22) 0,
+    rgba(111, 168, 220, 0.22) 4px,
+    transparent 4px,
+    transparent 9px
+  );
+  border-left: 1px dashed rgba(111, 168, 220, 0.6);
+  pointer-events: none;
+}
 .clip-delete {
   flex-shrink: 0;
   width: 16px;

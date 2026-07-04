@@ -148,6 +148,15 @@ export type TimelineClip = {
   panY?: number;
 };
 
+/** Дисклеймер: мелкий текст поверх всего видео на всю длительность */
+export type Disclaimer = {
+  text: string;
+  /** размер шрифта как доля ширины кадра */
+  sizeRatio: number;
+  /** вертикальная позиция центра текста, 0 = верх, 1 = низ */
+  positionY: number;
+};
+
 /** Музыка проекта: ссылка на трек из библиотеки */
 export type ProjectMusic = {
   trackId: string;
@@ -183,6 +192,7 @@ export type Project = {
    */
   clips?: TimelineClip[] | null;
   music?: ProjectMusic | null;
+  disclaimer?: Disclaimer | null;
   renderFile?: string; // имя файла в workspace/renders
   renderProgress?: number;
 };
@@ -211,6 +221,8 @@ export type CaptionInputProps = {
     kind: "video" | "image";
     inMs: number;
     outMs: number;
+    /** для «продления кадра»: где кончается реальное видео */
+    sourceDurationMs?: number;
     zoom?: number;
     panX?: number;
     panY?: number;
@@ -218,4 +230,5 @@ export type CaptionInputProps = {
   /** превью музыки */
   musicSrc?: string | null;
   musicVolume?: number;
+  disclaimer?: Disclaimer | null;
 };

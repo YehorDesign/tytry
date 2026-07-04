@@ -105,6 +105,7 @@ async function prepareInput(project: Project): Promise<string> {
       hasAudio: c.hasAudio,
       width: c.width,
       height: c.height,
+      sourceDurationMs: c.sourceDurationMs,
       zoom: c.zoom,
       panX: c.panX,
       panY: c.panY,
@@ -204,6 +205,7 @@ async function renderProjectChrome(projectId: string, job: RenderJob, origin: st
     width: project.video.width,
     height: project.video.height,
     durationMs: project.video.durationMs,
+    disclaimer: project.disclaimer,
   };
 
   const composition = await selectComposition({

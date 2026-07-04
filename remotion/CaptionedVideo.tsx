@@ -3,6 +3,7 @@ import {
   AbsoluteFill,
   Audio,
   Easing,
+  Freeze,
   Img,
   OffthreadVideo,
   Sequence,
@@ -32,6 +33,7 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
   clips,
   musicSrc,
   musicVolume,
+  disclaimer,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -49,16 +51,40 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
     [page, style]
   );
 
-  // монтаж: клипы встык; иначе — один исходник
+  // монтаж: клипы встык; «продлённый» хвост — отдельная секция с Freeze
   const clipSequences = useMemo(() => {
     if (!clips || clips.length === 0) return null;
     let fromFrame = 0;
-    return clips.map((c, i) => {
-      const durFrames = Math.max(Math.round(((c.outMs - c.inMs) / 1000) * fps), 1);
-      const seq = { ...c, key: i, fromFrame, durFrames };
-      fromFrame += durFrames;
-      return seq;
+    const items: (typeof clips[number] & {
+      key: string;
+      fromFrame: number;
+      durFrames: number;
+      /** кадр (внутри секции видео), на котором зависаем; null = обычное видео */
+      freezeAt: number | null;
+    })[] = [];
+    clips.forEach((c, i) => {
+      const totalFrames = Math.max(Math.round(((c.outMs - c.inMs) / 1000) * fps), 1);
+      const videoEndMs =
+        c.kind === "video" && c.sourceDurationMs
+          ? Math.min(c.outMs, c.sourceDurationMs)
+          : c.outMs;
+      const videoFrames = Math.min(
+        Math.max(Math.round(((videoEndMs - c.inMs) / 1000) * fps), 1),
+        totalFrames
+      );
+      items.push({ ...c, key: `${i}v`, fromFrame, durFrames: videoFrames, freezeAt: null });
+      if (totalFrames > videoFrames) {
+        items.push({
+          ...c,
+          key: `${i}f`,
+          fromFrame: fromFrame + videoFrames,
+          durFrames: totalFrames - videoFrames,
+          freezeAt: videoFrames - 1,
+        });
+      }
+      fromFrame += totalFrames;
     });
+    return items;
   }, [clips, fps]);
 
   return (
@@ -76,18 +102,20 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
                 ? `translate(${(c.panX ?? 0) * 100}%, ${(c.panY ?? 0) * 100}%) scale(${c.zoom ?? 1})`
                 : undefined,
           };
+          const media =
+            c.kind === "image" ? (
+              <Img src={c.src} style={clipStyle} />
+            ) : (
+              <OffthreadVideo
+                src={c.src}
+                startFrom={Math.round((c.inMs / 1000) * fps)}
+                muted={c.freezeAt !== null}
+                style={clipStyle}
+              />
+            );
           return (
             <Sequence key={c.key} from={c.fromFrame} durationInFrames={c.durFrames}>
-              {c.kind === "image" ? (
-                <Img src={c.src} style={clipStyle} />
-              ) : (
-                <OffthreadVideo
-                  src={c.src}
-                  startFrom={Math.round((c.inMs / 1000) * fps)}
-                  endAt={Math.round((c.outMs / 1000) * fps)}
-                  style={clipStyle}
-                />
-              )}
+              {c.freezeAt !== null ? <Freeze frame={c.freezeAt}>{media}</Freeze> : media}
             </Sequence>
           );
         })
@@ -98,6 +126,31 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
         />
       )}
       {musicSrc ? <Audio src={musicSrc} volume={musicVolume ?? 0.3} loop /> : null}
+      {/* дисклеймер: мелкий текст на всю длительность */}
+      {disclaimer?.text?.trim() ? (
+        <AbsoluteFill style={{ pointerEvents: "none" }}>
+          <div
+            style={{
+              position: "absolute",
+              top: `${disclaimer.positionY * 100}%`,
+              transform: "translateY(-50%)",
+              width: "100%",
+              padding: "0 5%",
+              boxSizing: "border-box",
+              textAlign: "center",
+              fontFamily: FONT_FAMILIES["Montserrat"] ?? "Montserrat",
+              fontWeight: 500,
+              fontSize: Math.max(Math.round(width * disclaimer.sizeRatio), 8),
+              lineHeight: 1.3,
+              color: "#FFFFFF",
+              textShadow: "0 0.06em 0.2em rgba(0,0,0,0.7)",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {disclaimer.text}
+          </div>
+        </AbsoluteFill>
+      ) : null}
       {page ? (
         <CaptionOverlay page={page} ms={ms} style={pageStyle} frameWidth={width} fps={fps} />
       ) : null}

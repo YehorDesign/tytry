@@ -101,6 +101,8 @@ export type FlattenClip = {
   /** размеры исходника — для расчёта вписывания и зума */
   width: number;
   height: number;
+  /** длительность исходника — для «продления кадра» (outMs дальше конца) */
+  sourceDurationMs?: number;
   zoom?: number;
   panX?: number;
   panY?: number;
@@ -136,11 +138,20 @@ function buildConcatGraph(
       args.push("-i", clip.path);
     }
 
+    // «продлить кадр»: outMs дальше конца исходника → морозим последний кадр
+    const srcDur = clip.sourceDurationMs ?? clip.outMs;
+    const videoEndMs = clip.kind === "video" ? Math.min(clip.outMs, srcDur) : clip.outMs;
+    const freezeSec =
+      clip.kind === "video" ? Math.max(clip.outMs - videoEndMs, 0) / 1000 : 0;
+
     if (withVideo) {
       const trim =
         clip.kind === "image"
           ? ""
-          : `trim=start=${(clip.inMs / 1000).toFixed(3)}:end=${(clip.outMs / 1000).toFixed(3)},setpts=PTS-STARTPTS,`;
+          : `trim=start=${(clip.inMs / 1000).toFixed(3)}:end=${(videoEndMs / 1000).toFixed(3)},setpts=PTS-STARTPTS,` +
+            (freezeSec > 0.001
+              ? `tpad=stop_mode=clone:stop_duration=${freezeSec.toFixed(3)},`
+              : "");
       // вписываем в канвас с учётом зума и сдвига: scale → overlay на чёрный фон
       // (края за пределами канваса обрезаются overlay-ем — это и есть «кроп»)
       const fit = Math.min(width / clip.width, height / clip.height);
@@ -158,8 +169,10 @@ function buildConcatGraph(
 
     if (clip.kind === "video" && clip.hasAudio) {
       filters.push(
-        `[${i}:a]atrim=start=${(clip.inMs / 1000).toFixed(3)}:end=${(clip.outMs / 1000).toFixed(3)},` +
-          `asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`
+        `[${i}:a]atrim=start=${(clip.inMs / 1000).toFixed(3)}:end=${(videoEndMs / 1000).toFixed(3)},` +
+          `asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo` +
+          (freezeSec > 0.001 ? `,apad=pad_dur=${freezeSec.toFixed(3)}` : "") +
+          `[a${i}]`
       );
     } else {
       // тишина той же длительности, чтобы concat не съехал

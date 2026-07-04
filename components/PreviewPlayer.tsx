@@ -3,7 +3,7 @@
 import React, { useMemo } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { CaptionedVideo } from "@/remotion/CaptionedVideo";
-import { clipDurationMs, type Project, type ProjectMusic, type StyleOverrides, type TimelineClip, type Word } from "@/lib/types";
+import { clipDurationMs, type Disclaimer, type Project, type ProjectMusic, type StyleOverrides, type TimelineClip, type Word } from "@/lib/types";
 
 const FPS = 30;
 
@@ -14,8 +14,9 @@ export const PreviewPlayer: React.FC<{
   overrides: StyleOverrides;
   clips: TimelineClip[] | null; // null = классический проект без монтажа
   music: ProjectMusic | null;
+  disclaimer: Disclaimer | null;
   playerRef: React.RefObject<PlayerRef | null>;
-}> = ({ project, words, styleId, overrides, clips, music, playerRef }) => {
+}> = ({ project, words, styleId, overrides, clips, music, disclaimer, playerRef }) => {
   const { width, height, fileName } = project.video;
 
   const durationMs =
@@ -39,6 +40,7 @@ export const PreviewPlayer: React.FC<{
               kind: c.kind,
               inMs: c.inMs,
               outMs: c.outMs,
+              sourceDurationMs: c.sourceDurationMs,
               zoom: c.zoom,
               panX: c.panX,
               panY: c.panY,
@@ -46,8 +48,9 @@ export const PreviewPlayer: React.FC<{
           : undefined,
       musicSrc: music ? `/api/file/music/${encodeURIComponent(music.fileName)}` : null,
       musicVolume: music?.volume,
+      disclaimer,
     }),
-    [fileName, words, styleId, overrides, width, height, durationMs, clips, music]
+    [fileName, words, styleId, overrides, width, height, durationMs, clips, music, disclaimer]
   );
 
   // вписываем видео в доступную область, сохраняя пропорции

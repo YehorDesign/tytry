@@ -13,6 +13,7 @@ import { resolveStyle } from "@/lib/styles";
 import {
   clipDurationMs,
   totalClipsDurationMs,
+  type Disclaimer,
   type MusicTrack,
   type Project,
   type ProjectMusic,
@@ -60,6 +61,7 @@ export default function Home() {
   const [overrides, setOverrides] = useState<StyleOverrides>({});
   const [clips, setClips] = useState<TimelineClip[] | null>(null);
   const [music, setMusic] = useState<ProjectMusic | null>(null);
+  const [disclaimer, setDisclaimer] = useState<Disclaimer | null>(null);
   // глобальные правки «по умолчанию» — подставляются при смене пресета и для новых видео
   const [defaultOverrides, setDefaultOverrides] = useState<StyleOverrides>({
     fontFamily: "Gilroy",
@@ -235,6 +237,7 @@ export default function Home() {
     setOverrides(project.overrides ?? {});
     setClips(project.clips && project.clips.length > 0 ? project.clips : null);
     setMusic(project.music ?? null);
+    setDisclaimer(project.disclaimer ?? null);
     setSelectedWordIds(new Set());
     setSelectedClipId(null);
     setSilenceMsg(null);
@@ -372,6 +375,20 @@ export default function Home() {
       c.id === frameClip.id ? { ...c, ...patch } : c
     );
     handleClipsChange(next);
+  };
+
+  // ── дисклеймер ──
+  const updateDisclaimer = (patch: Partial<Disclaimer>) => {
+    const next: Disclaimer = {
+      text: "",
+      sizeRatio: 0.018,
+      positionY: 0.96,
+      ...disclaimer,
+      ...patch,
+    };
+    const value = next.text.trim() ? next : null;
+    setDisclaimer(next.text ? next : null); // пустой текст = дисклеймера нет
+    scheduleSave({ disclaimer: value });
   };
 
   // ── музыка ──
@@ -981,6 +998,7 @@ export default function Home() {
                 overrides={overrides}
                 clips={clips}
                 music={music}
+                disclaimer={disclaimer}
                 playerRef={playerRef}
               />
             ) : (
@@ -1161,6 +1179,55 @@ export default function Home() {
                 ) : (
                   <p className="hint">{t.frameSelectHint}</p>
                 )}
+
+                <div style={{ height: 14 }} />
+                <div className="section-label">{t.disclaimerSection}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <textarea
+                    className="text-input"
+                    style={{ resize: "vertical", minHeight: 40, fontSize: 12 }}
+                    rows={2}
+                    placeholder={t.disclaimerPlaceholder}
+                    value={disclaimer?.text ?? ""}
+                    onChange={(e) => updateDisclaimer({ text: e.target.value })}
+                  />
+                  {disclaimer?.text?.trim() && (
+                    <>
+                      <div className="control-row">
+                        <span className="control-label">{t.size}</span>
+                        <input
+                          type="range"
+                          min={0.01}
+                          max={0.05}
+                          step={0.001}
+                          value={disclaimer.sizeRatio}
+                          onChange={(e) =>
+                            updateDisclaimer({ sizeRatio: Number(e.target.value) })
+                          }
+                        />
+                        <span className="control-value">
+                          {Math.round((disclaimer.sizeRatio / 0.018) * 100)}%
+                        </span>
+                      </div>
+                      <div className="control-row">
+                        <span className="control-label">{t.position}</span>
+                        <input
+                          type="range"
+                          min={0.03}
+                          max={0.97}
+                          step={0.01}
+                          value={disclaimer.positionY}
+                          onChange={(e) =>
+                            updateDisclaimer({ positionY: Number(e.target.value) })
+                          }
+                        />
+                        <span className="control-value">
+                          {Math.round(disclaimer.positionY * 100)}%
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 <div style={{ height: 14 }} />
                 <div className="section-label">{t.musicSection}</div>

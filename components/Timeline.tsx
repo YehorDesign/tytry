@@ -8,6 +8,7 @@ import { clipDurationMs, type CaptionPage, type ProjectMusic, type TimelineClip,
 const MIN_WORD_MS = 80; // минимальная длительность слова при растяжении
 const MIN_CLIP_MS = 200; // минимальная длительность клипа при триме
 const MAX_IMAGE_MS = 120000; // картинку можно растянуть максимум до 2 минут
+const MAX_FREEZE_MS = 120000; // «продление кадра»: до 2 минут статичного хвоста
 
 type DragState = {
   kind: "move" | "left" | "right";
@@ -225,8 +226,11 @@ export const Timeline: React.FC<{
       return d.clips.map((c, i) => (i === d.clipIndex ? { ...c, inMs } : c));
     }
     if (d.kind === "cright") {
+      // видео можно тянуть дальше конца исходника — хвост зависает на последнем кадре
       const maxOut =
-        clip.kind === "image" ? clip.inMs + MAX_IMAGE_MS : clip.sourceDurationMs;
+        clip.kind === "image"
+          ? clip.inMs + MAX_IMAGE_MS
+          : clip.sourceDurationMs + MAX_FREEZE_MS;
       const outMs = Math.min(
         Math.max(clip.outMs + d.deltaMs, clip.inMs + MIN_CLIP_MS),
         maxOut
@@ -420,6 +424,15 @@ export const Timeline: React.FC<{
                       className="timeline-handle left"
                       onPointerDown={(e) => startClipDrag(e, "cleft", i)}
                     />
+                    {/* «продлённый» хвост — статичный последний кадр */}
+                    {clip.kind === "video" && clip.outMs > clip.sourceDurationMs && (
+                      <div
+                        className="clip-freeze"
+                        style={{
+                          width: msToPx(clip.outMs - clip.sourceDurationMs),
+                        }}
+                      />
+                    )}
                     <span className="clip-block-text">
                       {clip.kind === "image" ? "🖼 " : ""}
                       {clip.originalName}

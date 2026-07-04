@@ -39,7 +39,8 @@ export function needsFlatten(project: Project): boolean {
   return (
     c.kind === "image" ||
     c.inMs > 0 ||
-    c.outMs < c.sourceDurationMs ||
+    // трим ИЛИ «продление кадра» (outMs дальше конца исходника)
+    c.outMs !== c.sourceDurationMs ||
     c.fileName !== project.video.fileName ||
     hasTransform(c)
   );

@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
           hasAudio: c.hasAudio,
           width: c.width,
           height: c.height,
+          sourceDurationMs: c.sourceDurationMs,
         })),
         audioPath
       );

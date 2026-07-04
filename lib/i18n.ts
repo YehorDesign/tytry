@@ -105,6 +105,10 @@ const en = {
   renderNamePlaceholder: "Output file name",
   renderNameTitle: "This becomes the rendered file name",
 
+  // disclaimer
+  disclaimerSection: "Disclaimer",
+  disclaimerPlaceholder: "Small white text shown for the whole video (e.g. “Not medical advice”)",
+
   // frame (zoom / position)
   frameSection: "Frame",
   frameZoom: "Zoom",
@@ -262,6 +266,9 @@ const uk: Dict = {
 
   renderNamePlaceholder: "Назва файлу рендера",
   renderNameTitle: "Так називатиметься відрендерений файл",
+
+  disclaimerSection: "Дисклеймер",
+  disclaimerPlaceholder: "Дрібний білий текст на все відео (напр. «Not medical advice»)",
 
   frameSection: "Кадр",
   frameZoom: "Зум",
