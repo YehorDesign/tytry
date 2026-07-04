@@ -1,8 +1,11 @@
 import React, { useMemo } from "react";
 import {
   AbsoluteFill,
+  Audio,
   Easing,
+  Img,
   OffthreadVideo,
+  Sequence,
   interpolate,
   spring,
   useCurrentFrame,
@@ -26,6 +29,9 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
   styleId,
   overrides,
   width,
+  clips,
+  musicSrc,
+  musicVolume,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -37,15 +43,53 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
     [words, style.maxWordsPerPage]
   );
   const page = findActivePage(pages, ms);
+  // страница со своим стилем отрезка рисуется им, остальные — стилем проекта
+  const pageStyle = useMemo(
+    () => (page?.style ? resolveStyle(page.style.styleId, page.style.overrides ?? {}) : style),
+    [page, style]
+  );
+
+  // монтаж: клипы встык; иначе — один исходник
+  const clipSequences = useMemo(() => {
+    if (!clips || clips.length === 0) return null;
+    let fromFrame = 0;
+    return clips.map((c, i) => {
+      const durFrames = Math.max(Math.round(((c.outMs - c.inMs) / 1000) * fps), 1);
+      const seq = { ...c, key: i, fromFrame, durFrames };
+      fromFrame += durFrames;
+      return seq;
+    });
+  }, [clips, fps]);
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
-      <OffthreadVideo
-        src={videoSrc}
-        style={{ width: "100%", height: "100%", objectFit: "contain" }}
-      />
+      {clipSequences ? (
+        clipSequences.map((c) => (
+          <Sequence key={c.key} from={c.fromFrame} durationInFrames={c.durFrames}>
+            {c.kind === "image" ? (
+              <Img
+                src={c.src}
+                style={{ width: "100%", height: "100%", objectFit: "contain" }}
+              />
+            ) : (
+              <OffthreadVideo
+                src={c.src}
+                startFrom={Math.round((c.inMs / 1000) * fps)}
+                endAt={Math.round((c.outMs / 1000) * fps)}
+                style={{ width: "100%", height: "100%", objectFit: "contain" }}
+              />
+            )}
+          </Sequence>
+        ))
+      ) : (
+        <OffthreadVideo
+          src={videoSrc}
+          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+        />
+      )}
+      {musicSrc ? <Audio src={musicSrc} volume={musicVolume ?? 0.3} loop /> : null}
       {page ? (
-        <CaptionOverlay page={page} ms={ms} style={style} frameWidth={width} fps={fps} />
+        <CaptionOverlay page={page} ms={ms} style={pageStyle} frameWidth={width} fps={fps} />
       ) : null}
     </AbsoluteFill>
   );

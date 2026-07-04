@@ -3,7 +3,7 @@
 import React, { useMemo } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { CaptionedVideo } from "@/remotion/CaptionedVideo";
-import type { Project, StyleOverrides, Word } from "@/lib/types";
+import { clipDurationMs, type Project, type ProjectMusic, type StyleOverrides, type TimelineClip, type Word } from "@/lib/types";
 
 const FPS = 30;
 
@@ -12,9 +12,16 @@ export const PreviewPlayer: React.FC<{
   words: Word[];
   styleId: string;
   overrides: StyleOverrides;
+  clips: TimelineClip[] | null; // null = классический проект без монтажа
+  music: ProjectMusic | null;
   playerRef: React.RefObject<PlayerRef | null>;
-}> = ({ project, words, styleId, overrides, playerRef }) => {
-  const { width, height, durationMs, fileName } = project.video;
+}> = ({ project, words, styleId, overrides, clips, music, playerRef }) => {
+  const { width, height, fileName } = project.video;
+
+  const durationMs =
+    clips && clips.length > 0
+      ? clips.reduce((sum, c) => sum + clipDurationMs(c), 0)
+      : project.video.durationMs;
 
   const inputProps = useMemo(
     () => ({
@@ -25,8 +32,19 @@ export const PreviewPlayer: React.FC<{
       width,
       height,
       durationMs,
+      clips:
+        clips && clips.length > 0
+          ? clips.map((c) => ({
+              src: `/api/file/uploads/${encodeURIComponent(c.fileName)}`,
+              kind: c.kind,
+              inMs: c.inMs,
+              outMs: c.outMs,
+            }))
+          : undefined,
+      musicSrc: music ? `/api/file/music/${encodeURIComponent(music.fileName)}` : null,
+      musicVolume: music?.volume,
     }),
-    [fileName, words, styleId, overrides, width, height, durationMs]
+    [fileName, words, styleId, overrides, width, height, durationMs, clips, music]
   );
 
   // вписываем видео в доступную область, сохраняя пропорции

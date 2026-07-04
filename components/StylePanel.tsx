@@ -97,16 +97,26 @@ export const StylePanel: React.FC<{
   t: Dict;
   styleId: string;
   overrides: StyleOverrides;
+  /** сколько фраз выделено на таймлайне (0 = правим весь проект) */
+  selectionCount?: number;
+  /** есть ли у выделения свой (сегментный) стиль */
+  selectionHasStyle?: boolean;
   onStyleChange: (styleId: string) => void;
   onOverridesChange: (overrides: StyleOverrides) => void;
+  onClearSelection?: () => void;
+  onResetSegmentStyle?: () => void;
   onApplyToAll: () => Promise<void>;
   onSaveDefaults: () => Promise<void>;
 }> = ({
   t,
   styleId,
   overrides,
+  selectionCount = 0,
+  selectionHasStyle = false,
   onStyleChange,
   onOverridesChange,
+  onClearSelection,
+  onResetSegmentStyle,
   onApplyToAll,
   onSaveDefaults,
 }) => {
@@ -142,6 +152,23 @@ export const StylePanel: React.FC<{
 
   return (
     <div className="fade-in">
+      {selectionCount > 0 && (
+        <div className="selection-banner">
+          <div className="selection-banner-title">{t.selectionBanner(selectionCount)}</div>
+          <p className="hint" style={{ margin: "4px 0 8px" }}>{t.selectionHint}</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {selectionHasStyle && (
+              <button className="btn btn-sm" onClick={onResetSegmentStyle}>
+                {t.resetSegmentStyle}
+              </button>
+            )}
+            <button className="btn btn-sm btn-ghost" onClick={onClearSelection}>
+              {t.clearSelection}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="section-label">{t.presets}</div>
       <div className="styles-grid">
         {CAPTION_STYLES.map((s) => (
@@ -260,27 +287,32 @@ export const StylePanel: React.FC<{
         </button>
       )}
 
-      <div style={{ height: 18 }} />
-      <div className="section-label">{t.globalSection}</div>
-      <p className="hint" style={{ marginBottom: 8 }}>
-        {t.globalHint}
-      </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <button
-          className="btn btn-sm"
-          disabled={busy}
-          onClick={() => runGlobal(onApplyToAll, setAppliedFlash)}
-        >
-          {appliedFlash ? t.applyToAllDone : t.applyToAll}
-        </button>
-        <button
-          className="btn btn-sm"
-          disabled={busy}
-          onClick={() => runGlobal(onSaveDefaults, setSavedFlash)}
-        >
-          {savedFlash ? t.saveDefaultsDone : t.saveDefaults}
-        </button>
-      </div>
+      {/* глобальные действия прячем в режиме выделения — они про весь проект */}
+      {selectionCount === 0 && (
+        <>
+          <div style={{ height: 18 }} />
+          <div className="section-label">{t.globalSection}</div>
+          <p className="hint" style={{ marginBottom: 8 }}>
+            {t.globalHint}
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button
+              className="btn btn-sm"
+              disabled={busy}
+              onClick={() => runGlobal(onApplyToAll, setAppliedFlash)}
+            >
+              {appliedFlash ? t.applyToAllDone : t.applyToAll}
+            </button>
+            <button
+              className="btn btn-sm"
+              disabled={busy}
+              onClick={() => runGlobal(onSaveDefaults, setSavedFlash)}
+            >
+              {savedFlash ? t.saveDefaultsDone : t.saveDefaults}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 };

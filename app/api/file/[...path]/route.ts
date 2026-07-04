@@ -13,8 +13,16 @@ const MIME: Record<string, string> = {
   ".webm": "video/webm",
   ".mkv": "video/x-matroska",
   ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
   ".png": "image/png",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
   ".wav": "audio/wav",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".ogg": "audio/ogg",
+  ".flac": "audio/flac",
 };
 
 type Params = { params: Promise<{ path: string[] }> };

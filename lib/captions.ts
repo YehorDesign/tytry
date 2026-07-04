@@ -1,12 +1,21 @@
-import type { CaptionPage, Word } from "./types";
+import { resolveStyle } from "./styles";
+import type { CaptionPage, Word, WordStyle } from "./types";
 
 const MAX_GAP_MS = 900; // пауза, после которой начинается новая страница
 const MAX_PAGE_DURATION_MS = 5000;
 const LINGER_MS = 250; // страница держится чуть дольше последнего слова
 
+/** Ключ сегментного стиля слова: одинаковый ключ ⇒ слова могут жить на одной странице */
+export function wordStyleKey(w: Word): string {
+  if (!w.style) return "";
+  return `${w.style.styleId}|${JSON.stringify(w.style.overrides ?? {})}`;
+}
+
 /**
  * Группирует слова в страницы субтитров. Используется одинаково
  * в редакторе, превью-плеере и при финальном рендере.
+ * Слова с сегментным стилем не смешиваются на странице со словами
+ * другого стиля; лимит слов берётся из стиля сегмента.
  */
 export function groupWordsIntoPages(
   words: Word[],
@@ -17,12 +26,16 @@ export function groupWordsIntoPages(
   // после перетаскивания на таймлайне порядок в массиве может разойтись со временем
   const sorted = [...words].sort((a, b) => a.startMs - b.startMs);
 
+  const maxWordsFor = (style: WordStyle | null | undefined): number =>
+    style ? resolveStyle(style.styleId, style.overrides ?? {}).maxWordsPerPage : maxWordsPerPage;
+
   const flush = () => {
     if (current.length === 0) return;
     pages.push({
       words: current,
       startMs: current[0].startMs,
       endMs: current[current.length - 1].endMs,
+      style: current[0].style ?? null,
     });
     current = [];
   };
@@ -35,10 +48,11 @@ export function groupWordsIntoPages(
       const pageDuration = word.endMs - current[0].startMs;
       const endsSentence = /[.!?…]$/.test(prev.text.trim());
       if (
-        current.length >= maxWordsPerPage ||
+        current.length >= maxWordsFor(current[0].style) ||
         gap > MAX_GAP_MS ||
         pageDuration > MAX_PAGE_DURATION_MS ||
-        endsSentence
+        endsSentence ||
+        wordStyleKey(word) !== wordStyleKey(current[0])
       ) {
         flush();
       }

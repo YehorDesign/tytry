@@ -15,6 +15,11 @@ const en = {
   videos: "Videos",
   railEmpty: "Nothing here yet. Drop videos into the window or click “Add videos”.",
   deleteProjectTitle: "Delete project",
+  selectMode: "Select",
+  selectAll: "All",
+  deleteSelectedProjects: (n: number) => `🗑 Delete (${n})`,
+  confirmDeleteMany: (n: number) => `Delete ${n} project(s) with all their files?`,
+  cancel: "Cancel",
 
   // statuses
   statusUploaded: "Uploaded",
@@ -62,7 +67,47 @@ const en = {
   transcribingHint: "⏳ Transcribing speech with Deepgram…",
 
   // timeline
-  timelineHint: "Drag a block to move it · drag its edges to stretch",
+  timelineHint: "Drag to move · edges to stretch · click to select · Ctrl/Shift+click for multi",
+  deleteSelected: (n: number) => `🗑 Delete (${n})`,
+  fitTimeline: "Fit",
+  clipsTrackLabel: "Clips",
+  captionsTrackLabel: "Captions",
+  musicTrackLabel: "Music",
+  clipMoveLeft: "Move left",
+  clipMoveRight: "Move right",
+  clipRemove: "Remove clip from timeline",
+  confirmRemoveClip: "Remove this clip from the timeline? The file stays on disk.",
+
+  // selection in style panel
+  selectionBanner: (n: number) => `Styling ${n} selected phrase(s)`,
+  selectionHint: "Preset and adjustments now apply only to the selected phrases.",
+  clearSelection: "Done — back to whole video",
+  resetSegmentStyle: "↺ Reset to project style",
+
+  // montage
+  newMontage: "🎬 New montage",
+  montageSection: "Montage",
+  addClips: "+ Add clips",
+  addClipsHint: "Clips are placed one after another, sorted by the number in the file name (1, 2, 3…). Drop your endcard / disclaimer last or reorder on the timeline.",
+  clipsCount: (n: number) => `${n} clip(s)`,
+
+  // music
+  musicSection: "Music",
+  musicNone: "No music",
+  musicUpload: "+ Upload track",
+  musicVolume: "Volume",
+  musicRemoveFromProject: "✕ Remove from project",
+  musicLibraryLabel: "Library",
+  musicDeleteFromLibrary: "Delete track from library",
+  confirmDeleteTrack: "Delete this track from the library?",
+
+  // silence
+  deleteSilence: "✂ Delete silence",
+  deleteSilenceTitle: "Trim silence at the start and end using transcription timings",
+  silenceNeedWords: "Transcribe first — silence is detected from word timings.",
+  silenceNothing: "No silence found at the edges.",
+  silenceTrimmed: (start: number, end: number) =>
+    `Trimmed ${(start / 1000).toFixed(1)}s at the start and ${(end / 1000).toFixed(1)}s at the end.`,
 
   // actions
   renderVideo: "🎬 Render video",
@@ -126,6 +171,11 @@ const uk: Dict = {
   videos: "Відео",
   railEmpty: "Поки порожньо. Перетягни відео у вікно або натисни «Додати відео».",
   deleteProjectTitle: "Видалити проєкт",
+  selectMode: "Вибрати",
+  selectAll: "Всі",
+  deleteSelectedProjects: (n: number) => `🗑 Видалити (${n})`,
+  confirmDeleteMany: (n: number) => `Видалити ${n} проєкт(и) з усіма файлами?`,
+  cancel: "Скасувати",
 
   statusUploaded: "Завантажено",
   statusTranscribing: "Розпізнаємо…",
@@ -167,7 +217,43 @@ const uk: Dict = {
   noCaptions: "Субтитрів поки немає. Натисни «Розпізнати мову», щоб отримати текст з аудіо.",
   transcribingHint: "⏳ Розпізнаємо мову через Deepgram…",
 
-  timelineHint: "Тягни блок, щоб посунути · тягни за край, щоб розтягнути",
+  timelineHint: "Тягни блок — посунути · за край — розтягнути · клік — вибрати · Ctrl/Shift+клік — кілька",
+  deleteSelected: (n: number) => `🗑 Видалити (${n})`,
+  fitTimeline: "Вмістити",
+  clipsTrackLabel: "Кліпи",
+  captionsTrackLabel: "Субтитри",
+  musicTrackLabel: "Музика",
+  clipMoveLeft: "Посунути ліворуч",
+  clipMoveRight: "Посунути праворуч",
+  clipRemove: "Прибрати кліп з таймлайна",
+  confirmRemoveClip: "Прибрати цей кліп з таймлайна? Файл залишиться на диску.",
+
+  selectionBanner: (n: number) => `Стиль для ${n} вибраних фраз`,
+  selectionHint: "Пресет і налаштування зараз застосовуються лише до вибраних фраз.",
+  clearSelection: "Готово — назад до всього відео",
+  resetSegmentStyle: "↺ Скинути до стилю проєкту",
+
+  newMontage: "🎬 Новий монтаж",
+  montageSection: "Монтаж",
+  addClips: "+ Додати кліпи",
+  addClipsHint: "Кліпи стають один за одним, відсортовані за числом у назві файлу (1, 2, 3…). Ендкард / дисклеймер закинь останнім або перестав на таймлайні.",
+  clipsCount: (n: number) => `${n} кліп(и)`,
+
+  musicSection: "Музика",
+  musicNone: "Без музики",
+  musicUpload: "+ Завантажити трек",
+  musicVolume: "Гучність",
+  musicRemoveFromProject: "✕ Прибрати з проєкту",
+  musicLibraryLabel: "Бібліотека",
+  musicDeleteFromLibrary: "Видалити трек з бібліотеки",
+  confirmDeleteTrack: "Видалити цей трек з бібліотеки?",
+
+  deleteSilence: "✂ Прибрати тишу",
+  deleteSilenceTitle: "Обрізати тишу на початку та в кінці за таймінгами розпізнавання",
+  silenceNeedWords: "Спершу розпізнай мову — тиша визначається за таймінгами слів.",
+  silenceNothing: "Тиші по краях не знайдено.",
+  silenceTrimmed: (start: number, end: number) =>
+    `Обрізано ${(start / 1000).toFixed(1)}с на початку і ${(end / 1000).toFixed(1)}с в кінці.`,
 
   renderVideo: "🎬 Рендер відео",
   rendering: "Рендеримо…",
@@ -224,6 +310,9 @@ const uk: Dict = {
     typewriter: "Друк",
     opus: "Опус",
     minimal: "Мінімал",
+    gold: "Золото",
+    glitch: "Глітч",
+    sticker: "Стікер",
   },
 };
 

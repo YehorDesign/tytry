@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Project } from "./types";
+import type { MusicTrack, Project } from "./types";
 
 // в упакованном приложении Electron подменяет рабочую папку на userData
 export const WORKSPACE =
@@ -9,12 +9,49 @@ export const UPLOADS_DIR = path.join(WORKSPACE, "uploads");
 export const AUDIO_DIR = path.join(WORKSPACE, "audio");
 export const RENDERS_DIR = path.join(WORKSPACE, "renders");
 export const THUMBS_DIR = path.join(WORKSPACE, "thumbs");
+export const MUSIC_DIR = path.join(WORKSPACE, "music");
 const PROJECTS_DIR = path.join(WORKSPACE, "projects");
+const MUSIC_INDEX = path.join(MUSIC_DIR, "library.json");
 
 export function ensureWorkspace() {
-  for (const dir of [WORKSPACE, UPLOADS_DIR, AUDIO_DIR, RENDERS_DIR, THUMBS_DIR, PROJECTS_DIR]) {
+  for (const dir of [WORKSPACE, UPLOADS_DIR, AUDIO_DIR, RENDERS_DIR, THUMBS_DIR, MUSIC_DIR, PROJECTS_DIR]) {
     fs.mkdirSync(dir, { recursive: true });
   }
+}
+
+// ── библиотека музыки ──
+
+export function listMusic(): MusicTrack[] {
+  try {
+    const tracks = JSON.parse(fs.readFileSync(MUSIC_INDEX, "utf8")) as MusicTrack[];
+    return tracks.sort((a, b) => b.addedAt.localeCompare(a.addedAt));
+  } catch {
+    return [];
+  }
+}
+
+export function addMusicTrack(track: MusicTrack) {
+  ensureWorkspace();
+  const tracks = listMusic().filter((t) => t.id !== track.id);
+  tracks.push(track);
+  fs.writeFileSync(MUSIC_INDEX, JSON.stringify(tracks, null, 2), "utf8");
+}
+
+export function deleteMusicTrack(id: string) {
+  const tracks = listMusic();
+  const track = tracks.find((t) => t.id === id);
+  if (track) {
+    try {
+      fs.rmSync(path.join(MUSIC_DIR, track.fileName), { force: true });
+    } catch {
+      // ignore
+    }
+  }
+  fs.writeFileSync(
+    MUSIC_INDEX,
+    JSON.stringify(tracks.filter((t) => t.id !== id), null, 2),
+    "utf8"
+  );
 }
 
 function projectFile(id: string) {
@@ -72,8 +109,10 @@ export function deleteProject(id: string) {
     renderPath && renderPath.startsWith(path.resolve(RENDERS_DIR) + path.sep);
   for (const file of [
     path.join(UPLOADS_DIR, project.video.fileName),
+    ...(project.clips ?? []).map((c) => path.join(UPLOADS_DIR, c.fileName)),
     path.join(THUMBS_DIR, `${id}.jpg`),
     path.join(AUDIO_DIR, `${id}.wav`),
+    path.join(RENDERS_DIR, `${id}_flat.mp4`), // промежуточная склейка монтажа
     renderInsideWorkspace ? renderPath : null,
     projectFile(id),
   ]) {

@@ -2,9 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { CaptionInputProps, Project } from "./types";
-import { RENDERS_DIR, UPLOADS_DIR, loadProject, updateProject } from "./store";
+import { MUSIC_DIR, RENDERS_DIR, UPLOADS_DIR, loadProject, updateProject } from "./store";
 import { getSettings } from "./settings";
 import { renderProjectNative } from "./render-native/render";
+import { flattenTimeline } from "./ffmpeg";
+import { getClips, needsFlatten } from "./montage";
 
 // корень приложения (в упакованном Electron задаётся через env)
 const APP_ROOT = process.env.TYTRY_APP_DIR || process.cwd();
@@ -84,18 +86,49 @@ async function runJob(projectId: string, job: RenderJob, origin: string) {
   }
 }
 
+/**
+ * Монтаж (клипы/трим/музыка) сначала склеивается ffmpeg-ом в промежуточный
+ * mp4, по которому уже идёт обычный рендер субтитров. Классический проект
+ * без правок рендерится прямо с исходника.
+ */
+async function prepareInput(project: Project): Promise<string> {
+  if (!needsFlatten(project)) return videoSourcePath(project);
+  const flatPath = path.join(RENDERS_DIR, `${project.id}_flat.mp4`);
+  let fps = project.video.fps;
+  if (!Number.isFinite(fps) || fps < 5 || fps > 120) fps = 30;
+  await flattenTimeline({
+    clips: getClips(project).map((c) => ({
+      path: path.join(UPLOADS_DIR, c.fileName),
+      kind: c.kind,
+      inMs: c.inMs,
+      outMs: c.outMs,
+      hasAudio: c.hasAudio,
+    })),
+    width: project.video.width,
+    height: project.video.height,
+    fps,
+    musicPath: project.music ? path.join(MUSIC_DIR, project.music.fileName) : null,
+    musicVolume: project.music?.volume,
+    outPath: flatPath,
+  });
+  return flatPath;
+}
+
 // ── нативный движок: skia-canvas + ffmpeg (NVENC/CPU), без Chrome ──
 
 async function renderNative(projectId: string, job: RenderJob) {
   const project = loadProject(projectId);
   if (!project) throw new Error("Project not found");
 
+  job.status = "bundling"; // склейка монтажа (если нужна)
+  const inputPath = await prepareInput(project);
+
   job.status = "rendering";
   const outputLocation = resolveOutputPath(project);
   let lastSaved = -1;
 
   await renderProjectNative(project, {
-    inputPath: videoSourcePath(project),
+    inputPath,
     outputPath: outputLocation,
     encoder: getSettings().encoder ?? "auto",
     onProgress: (progress) => {
@@ -148,12 +181,18 @@ async function renderProjectChrome(projectId: string, job: RenderJob, origin: st
   }
 
   job.status = "bundling";
+  const inputPath = await prepareInput(project);
   const serveUrl = await getBundle();
 
   const { renderMedia, selectComposition } = await import("@remotion/renderer");
 
+  // склейка лежит в workspace/renders, исходник — в uploads; отдаём через /api/file
+  const videoSrc = inputPath.startsWith(RENDERS_DIR)
+    ? `${origin}/api/file/renders/${encodeURIComponent(path.basename(inputPath))}`
+    : `${origin}/api/file/uploads/${encodeURIComponent(project.video.fileName)}`;
+
   const inputProps: CaptionInputProps = {
-    videoSrc: `${origin}/api/file/uploads/${encodeURIComponent(project.video.fileName)}`,
+    videoSrc,
     words: project.words,
     styleId: project.styleId,
     overrides: project.overrides,

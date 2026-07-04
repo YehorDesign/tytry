@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteProject, loadProject, updateProject } from "@/lib/store";
-import type { Project } from "@/lib/types";
+import { totalClipsDurationMs, type Project } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +20,8 @@ const EDITABLE_FIELDS: (keyof Project)[] = [
   "words",
   "styleId",
   "overrides",
+  "clips",
+  "music",
 ];
 
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -29,6 +31,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   for (const field of EDITABLE_FIELDS) {
     if (field in body) {
       (patch as Record<string, unknown>)[field] = body[field];
+    }
+  }
+  // длительность таймлайна следует за клипами
+  if (patch.clips && patch.clips.length > 0) {
+    const current = loadProject(id);
+    if (current) {
+      patch.video = {
+        ...current.video,
+        durationMs: totalClipsDurationMs(patch.clips),
+      };
     }
   }
   const project = updateProject(id, patch);

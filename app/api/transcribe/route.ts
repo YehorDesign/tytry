@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import path from "node:path";
 import { AUDIO_DIR, UPLOADS_DIR, loadProject, updateProject } from "@/lib/store";
-import { extractAudio } from "@/lib/ffmpeg";
+import { extractAudio, extractTimelineAudio } from "@/lib/ffmpeg";
 import { transcribeAudio } from "@/lib/deepgram";
 
 export const runtime = "nodejs";
@@ -16,9 +16,22 @@ export async function POST(req: NextRequest) {
   updateProject(id, { status: "transcribing", language: lang, error: undefined });
 
   try {
-    const videoPath = path.join(UPLOADS_DIR, project.video.fileName);
     const audioPath = path.join(AUDIO_DIR, `${id}.wav`);
-    await extractAudio(videoPath, audioPath);
+    if (project.clips && project.clips.length > 0) {
+      // монтаж: аудио склейки клипов (трим учтён, музыка не попадает в распознавание)
+      await extractTimelineAudio(
+        project.clips.map((c) => ({
+          path: path.join(UPLOADS_DIR, c.fileName),
+          kind: c.kind,
+          inMs: c.inMs,
+          outMs: c.outMs,
+          hasAudio: c.hasAudio,
+        })),
+        audioPath
+      );
+    } else {
+      await extractAudio(path.join(UPLOADS_DIR, project.video.fileName), audioPath);
+    }
     const words = await transcribeAudio(audioPath, lang);
     if (words.length === 0) {
       throw new Error("Deepgram found no speech in this video");

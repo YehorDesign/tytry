@@ -259,28 +259,57 @@ type DesignLaidWord = {
 
 type DesignLayout = { laid: DesignLaidWord[]; totalH: number };
 
+/** Производные от стиля значения, посчитанные один раз на уникальный стиль */
+type StyleCtx = {
+  style: CaptionStyle;
+  fontSize: number;
+  strokeWidth: number;
+  letterSpacingPx: number;
+  baseFont: string;
+  gradient: ReturnType<typeof parseLinearGradient>;
+};
+
 export function createScene(opts: SceneOptions): Scene {
   const { width, height, fps } = opts;
-  const style = resolveStyle(opts.styleId, opts.overrides);
-  const pages = groupWordsIntoPages(opts.words, style.maxWordsPerPage);
+  const projectStyle = resolveStyle(opts.styleId, opts.overrides);
+  const pages = groupWordsIntoPages(opts.words, projectStyle.maxWordsPerPage);
   const pageIndex = new Map<CaptionPage, number>(pages.map((p, i) => [p, i]));
 
-  const fontSize = Math.round(width * style.fontSizeRatio);
-  const strokeWidth = style.strokeRatio > 0 ? Math.max(fontSize * style.strokeRatio, 1) : 0;
-  const letterSpacingPx = (style.letterSpacingEm ?? 0) * fontSize;
-  const baseFont = fontString(style.fontFamily, style.fontWeight, fontSize, false);
-  const gradient = style.gradient ? parseLinearGradient(style.gradient) : null;
+  // страницы с сегментным стилем рисуются им; кэш по ключу стиля
+  const ctxCache = new Map<string, StyleCtx>();
+  function makeStyleCtx(style: CaptionStyle, key: string): StyleCtx {
+    const cached = ctxCache.get(key);
+    if (cached) return cached;
+    const fontSize = Math.round(width * style.fontSizeRatio);
+    const out: StyleCtx = {
+      style,
+      fontSize,
+      strokeWidth: style.strokeRatio > 0 ? Math.max(fontSize * style.strokeRatio, 1) : 0,
+      letterSpacingPx: (style.letterSpacingEm ?? 0) * fontSize,
+      baseFont: fontString(style.fontFamily, style.fontWeight, fontSize, false),
+      gradient: style.gradient ? parseLinearGradient(style.gradient) : null,
+    };
+    ctxCache.set(key, out);
+    return out;
+  }
+  function styleCtxFor(page: CaptionPage): StyleCtx {
+    if (!page.style) return makeStyleCtx(projectStyle, "");
+    const key = `${page.style.styleId}|${JSON.stringify(page.style.overrides ?? {})}`;
+    return makeStyleCtx(resolveStyle(page.style.styleId, page.style.overrides ?? {}), key);
+  }
 
   const msOf = (frame: number) => (frame / fps) * 1000;
   const frameOf = (ms: number) => Math.round((ms / 1000) * fps);
 
-  const display = (text: string) => (style.uppercase ? text.toUpperCase() : text);
+  const display = (s: StyleCtx, text: string) =>
+    s.style.uppercase ? text.toUpperCase() : text;
 
   // ── ключ состояния кадра ──
   function frameKey(frame: number): string {
     const page = findActivePage(pages, msOf(frame));
     if (!page) return "b";
     const idx = pageIndex.get(page) ?? 0;
+    const { style } = styleCtxFor(page);
     if (style.mode === "design") {
       const parts = page.words.map((w) => {
         const f = frame - frameOf(w.startMs);
@@ -313,10 +342,16 @@ export function createScene(opts: SceneOptions): Scene {
   // ── раскладка обычных страниц ──
   const layoutCache = new Map<number, PageLayout>();
 
-  function layoutPage(ctx: SKRSContext2D, page: CaptionPage, idx: number): PageLayout {
+  function layoutPage(
+    ctx: SKRSContext2D,
+    s: StyleCtx,
+    page: CaptionPage,
+    idx: number
+  ): PageLayout {
     const cached = layoutCache.get(idx);
     if (cached) return cached;
 
+    const { style, baseFont, fontSize, letterSpacingPx } = s;
     const { ascent, descent } = fontMetrics(ctx, baseFont, fontSize);
     const lineH = fontSize * 1.25;
     const columnGap =
@@ -346,7 +381,7 @@ export function createScene(opts: SceneOptions): Scene {
     };
 
     page.words.forEach((word, index) => {
-      const text = display(word.text);
+      const text = display(s, word.text);
       const w = ctx.measureText(text).width;
       if (rowWords.length > 0 && rowW + columnGap + w > maxW) flushRow();
       const lw: LaidWord = { word, index, text, width: w, x: 0, row: rows.length };
@@ -367,10 +402,16 @@ export function createScene(opts: SceneOptions): Scene {
   // ── раскладка design-страниц ──
   const designLayoutCache = new Map<number, DesignLayout>();
 
-  function layoutDesignPage(ctx: SKRSContext2D, page: CaptionPage, idx: number): DesignLayout {
+  function layoutDesignPage(
+    ctx: SKRSContext2D,
+    s: StyleCtx,
+    page: CaptionPage,
+    idx: number
+  ): DesignLayout {
     const cached = designLayoutCache.get(idx);
     if (cached) return cached;
 
+    const { style, fontSize } = s;
     const gap = fontSize * 0.08;
     const laid: DesignLaidWord[] = [];
     let top = 0;
@@ -404,9 +445,16 @@ export function createScene(opts: SceneOptions): Scene {
   }
 
   // ── отрисовка обычной страницы ──
-  function drawRegularPage(ctx: SKRSContext2D, page: CaptionPage, idx: number, frame: number) {
+  function drawRegularPage(
+    ctx: SKRSContext2D,
+    s: StyleCtx,
+    page: CaptionPage,
+    idx: number,
+    frame: number
+  ) {
+    const { style, fontSize } = s;
     const ms = msOf(frame);
-    const layout = layoutPage(ctx, page, idx);
+    const layout = layoutPage(ctx, s, page, idx);
     const activeIndex = findActiveWordIndex(page, ms);
     const sincePage = Math.max(frame - frameOf(page.startMs), 0);
 
@@ -460,13 +508,14 @@ export function createScene(opts: SceneOptions): Scene {
     for (const lw of layout.laid) {
       const rowTop = contentTop + lw.row * (layout.lineH + fontSize * 0.12);
       const baseline = rowTop + halfLeading + layout.ascent;
-      drawWordSpan(ctx, lw, baseline, activeIndex, ms, frame, pageOpacity);
+      drawWordSpan(ctx, s, lw, baseline, activeIndex, ms, frame, pageOpacity);
     }
     ctx.restore();
   }
 
   function drawWordSpan(
     ctx: SKRSContext2D,
+    s: StyleCtx,
     lw: LaidWord,
     baseline: number,
     activeIndex: number,
@@ -474,6 +523,7 @@ export function createScene(opts: SceneOptions): Scene {
     frame: number,
     pageOpacity: number
   ) {
+    const { style, fontSize, baseFont, strokeWidth, letterSpacingPx, gradient } = s;
     const { word, index, text } = lw;
     const isActive = index === activeIndex && ms >= word.startMs;
     const isSpoken = ms >= word.startMs;
@@ -587,8 +637,15 @@ export function createScene(opts: SceneOptions): Scene {
   }
 
   // ── отрисовка design-страницы ──
-  function drawDesignPage(ctx: SKRSContext2D, page: CaptionPage, idx: number, frame: number) {
-    const layout = layoutDesignPage(ctx, page, idx);
+  function drawDesignPage(
+    ctx: SKRSContext2D,
+    s: StyleCtx,
+    page: CaptionPage,
+    idx: number,
+    frame: number
+  ) {
+    const { style } = s;
+    const layout = layoutDesignPage(ctx, s, page, idx);
     const stackTop = style.positionY * height - layout.totalH / 2;
 
     for (const dw of layout.laid) {
@@ -657,10 +714,11 @@ export function createScene(opts: SceneOptions): Scene {
     const page = findActivePage(pages, msOf(frame));
     if (!page) return false;
     const idx = pageIndex.get(page) ?? 0;
+    const s = styleCtxFor(page);
     ctx.save();
     if (offsetY) ctx.translate(0, -offsetY);
-    if (style.mode === "design") drawDesignPage(ctx, page, idx, frame);
-    else drawRegularPage(ctx, page, idx, frame);
+    if (s.style.mode === "design") drawDesignPage(ctx, s, page, idx, frame);
+    else drawRegularPage(ctx, s, page, idx, frame);
     ctx.restore();
     return true;
   }
@@ -670,11 +728,14 @@ export function createScene(opts: SceneOptions): Scene {
     let min = Infinity;
     let max = -Infinity;
     // запас на тени/размытие/сдвиги анимаций
-    const margin = fontSize * 2.5;
+    let margin = 0;
 
     pages.forEach((page, idx) => {
+      const s = styleCtxFor(page);
+      const { style, fontSize } = s;
+      margin = Math.max(margin, fontSize * 2.5);
       if (style.mode === "design") {
-        const layout = layoutDesignPage(mctx, page, idx);
+        const layout = layoutDesignPage(mctx, s, page, idx);
         const stackTop = style.positionY * height - layout.totalH / 2;
         for (const dw of layout.laid) {
           const cy = stackTop + dw.top + dw.boxH / 2;
@@ -688,7 +749,7 @@ export function createScene(opts: SceneOptions): Scene {
           max = Math.max(max, cy + half);
         }
       } else {
-        const layout = layoutPage(mctx, page, idx);
+        const layout = layoutPage(mctx, s, page, idx);
         const padV = style.lineBackground ? fontSize * 0.22 : 0;
         const totalH = layout.contentH + 2 * padV;
         const center = style.positionY * height;

@@ -8,8 +8,19 @@ import { StylePanel } from "@/components/StylePanel";
 import { Timeline } from "@/components/Timeline";
 import { formatTimestamp, groupWordsIntoPages } from "@/lib/captions";
 import { STRINGS, getLocale, setLocale, type Locale } from "@/lib/i18n";
+import { getClips, projectDurationMs } from "@/lib/montage";
 import { resolveStyle } from "@/lib/styles";
-import type { Project, StyleOverrides, Word } from "@/lib/types";
+import {
+  clipDurationMs,
+  totalClipsDurationMs,
+  type MusicTrack,
+  type Project,
+  type ProjectMusic,
+  type StyleOverrides,
+  type TimelineClip,
+  type Word,
+  type WordStyle,
+} from "@/lib/types";
 
 const PreviewPlayer = dynamic(
   () => import("@/components/PreviewPlayer").then((m) => m.PreviewPlayer),
@@ -17,6 +28,7 @@ const PreviewPlayer = dynamic(
 );
 
 const FPS = 30;
+const MIN_SHIFTED_MS = 40; // защита от отрицательных таймингов после сдвига слов
 
 export default function Home() {
   const [locale, setLocaleState] = useState<Locale>("uk");
@@ -45,19 +57,44 @@ export default function Home() {
   const [words, setWords] = useState<Word[]>([]);
   const [styleId, setStyleId] = useState("hormozi");
   const [overrides, setOverrides] = useState<StyleOverrides>({});
+  const [clips, setClips] = useState<TimelineClip[] | null>(null);
+  const [music, setMusic] = useState<ProjectMusic | null>(null);
   // глобальные правки «по умолчанию» — подставляются при смене пресета и для новых видео
   const [defaultOverrides, setDefaultOverrides] = useState<StyleOverrides>({
     fontFamily: "Gilroy",
   });
 
+  // выделение фраз на таймлайне (по id слов)
+  const [selectedWordIds, setSelectedWordIds] = useState<Set<string>>(new Set());
+
+  // мультивыбор проектов в списке
+  const [railSelectMode, setRailSelectMode] = useState(false);
+  const [railSelected, setRailSelected] = useState<Set<string>>(new Set());
+
+  // музыкальная библиотека
+  const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
+
+  // сообщение после «прибрати тишу»
+  const [silenceMsg, setSilenceMsg] = useState<string | null>(null);
+
   const playerRef = useRef<PlayerRef | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const montageInputRef = useRef<HTMLInputElement | null>(null);
+  const clipsInputRef = useRef<HTMLInputElement | null>(null);
+  const musicInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const transcribeQueueRef = useRef<Project[]>([]);
   const activeTranscribesRef = useRef(0);
 
   const selected = projects.find((p) => p.id === selectedId) ?? null;
+
+  // длительность таймлайна: при монтаже считаем по локальным клипам
+  const timelineDurationMs = clips
+    ? totalClipsDurationMs(clips)
+    : selected
+      ? projectDurationMs(selected)
+      : 0;
 
   useEffect(() => {
     setLocaleState(getLocale());
@@ -97,6 +134,21 @@ export default function Home() {
     const interval = setInterval(refresh, 2000);
     return () => clearInterval(interval);
   }, [refresh]);
+
+  // ── музыкальная библиотека ──
+  const refreshMusic = useCallback(async () => {
+    try {
+      const res = await fetch("/api/music");
+      const data = (await res.json()) as { tracks: MusicTrack[] };
+      setMusicTracks(data.tracks ?? []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshMusic();
+  }, [refreshMusic]);
 
   // ── статус ключа Deepgram и папка вывода ──
   const refreshSettings = useCallback(async () => {
@@ -177,6 +229,10 @@ export default function Home() {
     setWords(project.words ?? []);
     setStyleId(project.styleId);
     setOverrides(project.overrides ?? {});
+    setClips(project.clips && project.clips.length > 0 ? project.clips : null);
+    setMusic(project.music ?? null);
+    setSelectedWordIds(new Set());
+    setSilenceMsg(null);
     setCurrentMs(0);
   }, []);
 
@@ -198,15 +254,194 @@ export default function Home() {
     setWords(next);
     scheduleSave({ words: next, styleId, overrides });
   };
+
+  // ── стиль: без выделения правим проект, с выделением — только выбранные фразы ──
+  const selectionActive = selectedWordIds.size > 0;
+  const firstSelectedWord = useMemo(
+    () => words.find((w) => selectedWordIds.has(w.id)) ?? null,
+    [words, selectedWordIds]
+  );
+  const selectionStyle: WordStyle | null = firstSelectedWord?.style ?? null;
+  const panelStyleId = selectionActive ? selectionStyle?.styleId ?? styleId : styleId;
+  const panelOverrides = selectionActive
+    ? selectionStyle?.overrides ?? overrides
+    : overrides;
+
+  const applyStyleToSelection = (style: WordStyle | null) => {
+    const next = words.map((w) =>
+      selectedWordIds.has(w.id)
+        ? style
+          ? { ...w, style }
+          : (({ style: _drop, ...rest }) => rest)(w)
+        : w
+    );
+    setWords(next);
+    scheduleSave({ words: next, styleId, overrides });
+  };
+
   const handleStyleChange = (next: string) => {
+    if (selectionActive) {
+      applyStyleToSelection({ styleId: next, overrides: defaultOverrides });
+      return;
+    }
     // при смене пресета правки не обнуляем, а ставим глобальные типовые
     setStyleId(next);
     setOverrides(defaultOverrides);
     scheduleSave({ words, styleId: next, overrides: defaultOverrides });
   };
   const handleOverridesChange = (next: StyleOverrides) => {
+    if (selectionActive) {
+      applyStyleToSelection({ styleId: panelStyleId, overrides: next });
+      return;
+    }
     setOverrides(next);
     scheduleSave({ words, styleId, overrides: next });
+  };
+
+  const deleteSelectedPhrases = useCallback(() => {
+    setSelectedWordIds((sel) => {
+      if (sel.size === 0) return sel;
+      setWords((prev) => {
+        const next = prev.filter((w) => !sel.has(w.id));
+        scheduleSave({ words: next });
+        return next;
+      });
+      return new Set();
+    });
+  }, [scheduleSave]);
+
+  // Delete/Backspace удаляет выделенные фразы (если фокус не в поле ввода)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const el = e.target as HTMLElement;
+      if (
+        el.tagName === "INPUT" ||
+        el.tagName === "TEXTAREA" ||
+        el.tagName === "SELECT" ||
+        el.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+      deleteSelectedPhrases();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deleteSelectedPhrases]);
+
+  // ── клипы монтажа ──
+  const handleClipsChange = (next: TimelineClip[]) => {
+    setClips(next);
+    scheduleSave({ clips: next });
+  };
+
+  // ── музыка ──
+  const setProjectMusic = (track: MusicTrack | null) => {
+    const next: ProjectMusic | null = track
+      ? {
+          trackId: track.id,
+          fileName: track.fileName,
+          name: track.name,
+          volume: music?.volume ?? 0.25,
+        }
+      : null;
+    setMusic(next);
+    scheduleSave({ music: next });
+  };
+
+  const setMusicVolume = (volume: number) => {
+    if (!music) return;
+    const next = { ...music, volume };
+    setMusic(next);
+    scheduleSave({ music: next });
+  };
+
+  const uploadMusic = async (files: FileList) => {
+    const formData = new FormData();
+    for (const f of Array.from(files)) formData.append("files", f);
+    const res = await fetch("/api/music", { method: "POST", body: formData });
+    const data = (await res.json()) as { created: MusicTrack[]; tracks: MusicTrack[] };
+    setMusicTracks(data.tracks ?? []);
+    if (data.created?.[0] && selectedIdRef.current) {
+      setProjectMusic(data.created[0]); // сразу ставим загруженный трек в проект
+    }
+  };
+
+  const deleteMusicFromLibrary = async (id: string) => {
+    if (!confirm(t.confirmDeleteTrack)) return;
+    const res = await fetch("/api/music", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    const data = (await res.json()) as { tracks: MusicTrack[] };
+    setMusicTracks(data.tracks ?? []);
+    if (music?.trackId === id) setProjectMusic(null);
+  };
+
+  // ── «прибрати тишу»: трим по краям по таймінгам слов ──
+  const deleteSilence = () => {
+    if (!selected) return;
+    if (words.length === 0) {
+      setSilenceMsg(t.silenceNeedWords);
+      return;
+    }
+    const sorted = [...words].sort((a, b) => a.startMs - b.startMs);
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const PAD = 150; // небольшой запас, чтобы речь не начиналась впритык
+    const lead = Math.max(first.startMs - PAD, 0);
+    const tail = Math.max(timelineDurationMs - last.endMs - PAD, 0);
+    if (lead < 100 && tail < 100) {
+      setSilenceMsg(t.silenceNothing);
+      return;
+    }
+
+    const base = clips ?? getClips(selected);
+    const next = base.map((c) => ({ ...c }));
+    // границы клипов на таймлайне — сцены без слов не трогаем вовсе
+    const starts: number[] = [];
+    let acc = 0;
+    for (const c of next) {
+      starts.push(acc);
+      acc += clipDurationMs(c);
+    }
+
+    // начало: режем только если первое слово звучит внутри ПЕРВОГО клипа
+    let leadTrim = 0;
+    if (first.startMs < starts[0] + clipDurationMs(next[0])) {
+      leadTrim = Math.min(lead, Math.max(clipDurationMs(next[0]) - 200, 0));
+      next[0].inMs += leadTrim;
+    }
+    // конец: только если последнее слово внутри ПОСЛЕДНЕГО клипа
+    // (ендкард/дисклеймер без речи остаётся как есть)
+    const lastIdx = next.length - 1;
+    let tailTrim = 0;
+    if (last.endMs > starts[lastIdx]) {
+      tailTrim = Math.min(tail, Math.max(clipDurationMs(next[lastIdx]) - 200, 0));
+      next[lastIdx].outMs -= tailTrim;
+    }
+    if (leadTrim < 1 && tailTrim < 1) {
+      setSilenceMsg(t.silenceNothing);
+      return;
+    }
+
+    // сдвигаем субтитры, чтобы остались на своих словах
+    const nextWords =
+      leadTrim > 0
+        ? words.map((w) => ({
+            ...w,
+            startMs: Math.max(w.startMs - leadTrim, 0),
+            endMs: Math.max(w.endMs - leadTrim, MIN_SHIFTED_MS),
+          }))
+        : words;
+
+    setClips(next);
+    setWords(nextWords);
+    setSelectedWordIds(new Set());
+    scheduleSave({ clips: next, words: nextWords });
+    setSilenceMsg(t.silenceTrimmed(leadTrim, tailTrim));
   };
 
   // ── глобальные действия со стилем ──
@@ -293,6 +528,68 @@ export default function Home() {
     [language, refresh, selectProject, pumpTranscribe]
   );
 
+  // ── новый монтаж: все выбранные файлы → один проект встык ──
+  const uploadMontage = useCallback(
+    async (files: FileList | File[]) => {
+      const list = Array.from(files).filter((f) =>
+        /\.(mp4|mov|webm|mkv|avi|m4v|png|jpe?g|webp|bmp)$/i.test(f.name)
+      );
+      if (list.length === 0) return;
+      setUploading(`0/${list.length}`);
+      try {
+        const formData = new FormData();
+        for (const f of list) formData.append("files", f);
+        const res = await fetch("/api/upload?mode=montage", {
+          method: "POST",
+          body: formData,
+        });
+        const data = (await res.json()) as {
+          created?: Project[];
+          errors?: { name: string; error: string }[];
+        };
+        if (data.errors?.length) console.warn("Montage upload errors:", data.errors);
+        await refresh();
+        if (data.created?.[0]) {
+          selectProject(data.created[0]);
+          transcribeQueueRef.current.push(data.created[0]);
+          pumpTranscribe();
+        }
+      } finally {
+        setUploading(null);
+      }
+    },
+    [refresh, selectProject, pumpTranscribe]
+  );
+
+  // ── добавить клипы (ендкард/дисклеймер) в текущий проект ──
+  const appendClips = useCallback(
+    async (files: FileList | File[]) => {
+      const id = selectedIdRef.current;
+      if (!id) return;
+      const list = Array.from(files).filter((f) =>
+        /\.(mp4|mov|webm|mkv|avi|m4v|png|jpe?g|webp|bmp)$/i.test(f.name)
+      );
+      if (list.length === 0) return;
+      setUploading(`0/${list.length}`);
+      try {
+        const formData = new FormData();
+        for (const f of list) formData.append("files", f);
+        const res = await fetch(`/api/upload?projectId=${id}`, {
+          method: "POST",
+          body: formData,
+        });
+        const data = (await res.json()) as { project?: Project };
+        if (data.project) {
+          setClips(data.project.clips ?? null);
+        }
+        await refresh();
+      } finally {
+        setUploading(null);
+      }
+    },
+    [refresh]
+  );
+
   const transcribe = async (id: string) => {
     setProjects((prev) =>
       prev.map((p) => (p.id === id ? { ...p, status: "transcribing" as const } : p))
@@ -333,6 +630,33 @@ export default function Home() {
     await refresh();
   };
 
+  // ── массовое удаление проектов ──
+  const toggleRailSelected = (id: string) => {
+    setRailSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const deleteRailSelected = async () => {
+    if (railSelected.size === 0) return;
+    if (!confirm(t.confirmDeleteMany(railSelected.size))) return;
+    await fetch("/api/projects", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(railSelected) }),
+    });
+    if (selectedIdRef.current && railSelected.has(selectedIdRef.current)) {
+      selectedIdRef.current = null;
+      setSelectedId(null);
+    }
+    setRailSelected(new Set());
+    setRailSelectMode(false);
+    await refresh();
+  };
+
   const seek = (ms: number) => {
     playerRef.current?.seekTo(Math.round((ms / 1000) * FPS));
     playerRef.current?.pause();
@@ -343,6 +667,13 @@ export default function Home() {
   const pages = useMemo(
     () => groupWordsIntoPages(words, resolved.maxWordsPerPage),
     [words, resolved.maxWordsPerPage]
+  );
+
+  // в баннере панели показываем количество ФРАЗ, а не слов
+  const selectedPhraseCount = useMemo(
+    () =>
+      pages.filter((p) => p.words.some((w) => selectedWordIds.has(w.id))).length,
+    [pages, selectedWordIds]
   );
 
   const renderableCount = projects.filter(
@@ -405,6 +736,14 @@ export default function Home() {
         </select>
         <button
           className="btn"
+          onClick={() => montageInputRef.current?.click()}
+          disabled={!!uploading}
+          title={t.addClipsHint}
+        >
+          {t.newMontage}
+        </button>
+        <button
+          className="btn"
           onClick={() => fileInputRef.current?.click()}
           disabled={!!uploading}
         >
@@ -428,6 +767,39 @@ export default function Home() {
             e.target.value = "";
           }}
         />
+        <input
+          ref={montageInputRef}
+          type="file"
+          accept="video/*,image/*,.mp4,.mov,.webm,.mkv,.png,.jpg,.jpeg,.webp"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files) uploadMontage(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={clipsInputRef}
+          type="file"
+          accept="video/*,image/*,.mp4,.mov,.webm,.mkv,.png,.jpg,.jpeg,.webp"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files) appendClips(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={musicInputRef}
+          type="file"
+          accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files) uploadMusic(e.target.files);
+            e.target.value = "";
+          }}
+        />
       </header>
 
       <div className="workspace">
@@ -437,14 +809,65 @@ export default function Home() {
             <span className="rail-title">
               {t.videos} — {projects.length}
             </span>
+            <div style={{ flex: 1 }} />
+            {projects.length > 0 && !railSelectMode && (
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => setRailSelectMode(true)}
+              >
+                {t.selectMode}
+              </button>
+            )}
+            {railSelectMode && (
+              <>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() =>
+                    setRailSelected((prev) =>
+                      prev.size === projects.length
+                        ? new Set()
+                        : new Set(projects.map((p) => p.id))
+                    )
+                  }
+                >
+                  {t.selectAll}
+                </button>
+                <button
+                  className="btn btn-sm"
+                  style={{ color: "var(--danger)" }}
+                  disabled={railSelected.size === 0}
+                  onClick={deleteRailSelected}
+                >
+                  {t.deleteSelectedProjects(railSelected.size)}
+                </button>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => {
+                    setRailSelectMode(false);
+                    setRailSelected(new Set());
+                  }}
+                >
+                  ✕
+                </button>
+              </>
+            )}
           </div>
           <div className="rail-list">
             {projects.map((p) => (
               <div
                 key={p.id}
-                className={`project-card ${p.id === selectedId ? "selected" : ""}`}
-                onClick={() => selectProject(p)}
+                className={`project-card ${p.id === selectedId ? "selected" : ""} ${railSelectMode && railSelected.has(p.id) ? "checked" : ""}`}
+                onClick={() =>
+                  railSelectMode ? toggleRailSelected(p.id) : selectProject(p)
+                }
               >
+                {railSelectMode && (
+                  <span
+                    className={`rail-check ${railSelected.has(p.id) ? "on" : ""}`}
+                  >
+                    {railSelected.has(p.id) ? "✓" : ""}
+                  </span>
+                )}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   className="project-thumb"
@@ -455,9 +878,15 @@ export default function Home() {
                   }
                 />
                 <div className="project-info">
-                  <span className="project-name">{p.name}</span>
+                  <span className="project-name">
+                    {p.clips && p.clips.length > 1 ? "🎬 " : ""}
+                    {p.name}
+                  </span>
                   <span className="project-meta">
                     {p.video.width}×{p.video.height} · {formatTimestamp(p.video.durationMs)}
+                    {p.clips && p.clips.length > 1
+                      ? ` · ${t.clipsCount(p.clips.length)}`
+                      : ""}
                   </span>
                   <span className="status-chip">
                     <span className={`status-dot ${p.status}`} />
@@ -466,13 +895,15 @@ export default function Home() {
                       : STATUS_LABELS[p.status]}
                   </span>
                 </div>
-                <button
-                  className="card-delete"
-                  title={t.deleteProjectTitle}
-                  onClick={(e) => removeProject(p.id, e)}
-                >
-                  ✕
-                </button>
+                {!railSelectMode && (
+                  <button
+                    className="card-delete"
+                    title={t.deleteProjectTitle}
+                    onClick={(e) => removeProject(p.id, e)}
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             ))}
             {projects.length === 0 && (
@@ -492,6 +923,8 @@ export default function Home() {
                 words={words}
                 styleId={styleId}
                 overrides={overrides}
+                clips={clips}
+                music={music}
                 playerRef={playerRef}
               />
             ) : (
@@ -511,14 +944,20 @@ export default function Home() {
           </div>
 
           {/* таймлайн */}
-          {selected && pages.length > 0 && (
+          {selected && (pages.length > 0 || (clips && clips.length > 0)) && (
             <Timeline
+              t={t}
               words={words}
               maxWordsPerPage={resolved.maxWordsPerPage}
-              durationMs={selected.video.durationMs}
+              durationMs={timelineDurationMs}
               currentMs={currentMs}
-              hint={t.timelineHint}
+              selectedWordIds={selectedWordIds}
+              clips={clips}
+              music={music}
               onWordsChange={handleWordsChange}
+              onSelectionChange={setSelectedWordIds}
+              onDeleteSelected={deleteSelectedPhrases}
+              onClipsChange={handleClipsChange}
               onSeek={seek}
             />
           )}
@@ -554,10 +993,14 @@ export default function Home() {
                 {tab === "style" ? (
                   <StylePanel
                     t={t}
-                    styleId={styleId}
-                    overrides={overrides}
+                    styleId={panelStyleId}
+                    overrides={panelOverrides}
+                    selectionCount={selectedPhraseCount}
+                    selectionHasStyle={!!selectionStyle}
                     onStyleChange={handleStyleChange}
                     onOverridesChange={handleOverridesChange}
+                    onClearSelection={() => setSelectedWordIds(new Set())}
+                    onResetSegmentStyle={() => applyStyleToSelection(null)}
                     onApplyToAll={applyStyleToAll}
                     onSaveDefaults={saveStyleDefaults}
                   />
@@ -571,6 +1014,83 @@ export default function Home() {
                     onSeek={seek}
                   />
                 )}
+
+                <div className="divider" />
+
+                {/* ── монтаж: клипы, тиша, музыка ── */}
+                <div className="section-label">{t.montageSection}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => clipsInputRef.current?.click()}
+                    disabled={!!uploading}
+                  >
+                    {t.addClips}
+                  </button>
+                  <button
+                    className="btn btn-sm"
+                    onClick={deleteSilence}
+                    title={t.deleteSilenceTitle}
+                    disabled={selected.status === "transcribing"}
+                  >
+                    {t.deleteSilence}
+                  </button>
+                  {silenceMsg && <p className="hint">{silenceMsg}</p>}
+                </div>
+
+                <div style={{ height: 14 }} />
+                <div className="section-label">{t.musicSection}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <select
+                      className="select"
+                      style={{ flex: 1, minWidth: 0 }}
+                      value={music?.trackId ?? ""}
+                      onChange={(e) => {
+                        const track = musicTracks.find((m) => m.id === e.target.value);
+                        setProjectMusic(track ?? null);
+                      }}
+                    >
+                      <option value="">{t.musicNone}</option>
+                      {musicTracks.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} · {formatTimestamp(m.durationMs)}
+                        </option>
+                      ))}
+                    </select>
+                    {music && (
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        title={t.musicDeleteFromLibrary}
+                        onClick={() => deleteMusicFromLibrary(music.trackId)}
+                      >
+                        🗑
+                      </button>
+                    )}
+                  </div>
+                  {music && (
+                    <div className="control-row">
+                      <span className="control-label">{t.musicVolume}</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={music.volume}
+                        onChange={(e) => setMusicVolume(Number(e.target.value))}
+                      />
+                      <span className="control-value">
+                        {Math.round(music.volume * 100)}%
+                      </span>
+                    </div>
+                  )}
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => musicInputRef.current?.click()}
+                  >
+                    {t.musicUpload}
+                  </button>
+                </div>
 
                 <div className="divider" />
 

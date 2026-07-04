@@ -3,12 +3,22 @@ export type Word = {
   text: string;
   startMs: number;
   endMs: number;
+  /** стиль отрезка: если задан, слова с этим стилем рисуются им вместо стиля проекта */
+  style?: WordStyle | null;
+};
+
+/** Пер-сегментный стиль: пресет + правки, привязанные к конкретным словам */
+export type WordStyle = {
+  styleId: string;
+  overrides: StyleOverrides;
 };
 
 export type CaptionPage = {
   words: Word[];
   startMs: number;
   endMs: number;
+  /** стиль отрезка (общий для всех слов страницы) или null = стиль проекта */
+  style?: WordStyle | null;
 };
 
 export type CaptionMode =
@@ -116,6 +126,39 @@ export type VideoMeta = {
   fps: number;
 };
 
+/** Клип на таймлайне монтажа. Позиция не хранится: клипы идут встык по порядку массива. */
+export type TimelineClip = {
+  id: string;
+  kind: "video" | "image";
+  fileName: string; // имя файла в workspace/uploads
+  originalName: string;
+  /** длительность исходника; для image — условная (trim out можно тянуть дальше) */
+  sourceDurationMs: number;
+  inMs: number; // трим от начала исходника
+  outMs: number; // трим-конец (по исходнику)
+  width: number;
+  height: number;
+  /** есть ли аудиодорожка в исходнике */
+  hasAudio: boolean;
+};
+
+/** Музыка проекта: ссылка на трек из библиотеки */
+export type ProjectMusic = {
+  trackId: string;
+  fileName: string; // имя файла в workspace/music
+  name: string;
+  volume: number; // 0..1
+};
+
+/** Трек в библиотеке музыки (workspace/music/library.json) */
+export type MusicTrack = {
+  id: string;
+  name: string;
+  fileName: string;
+  durationMs: number;
+  addedAt: string;
+};
+
 export type Project = {
   id: string;
   name: string;
@@ -127,9 +170,26 @@ export type Project = {
   words: Word[] | null;
   styleId: string;
   overrides: StyleOverrides;
+  /**
+   * Клипы монтажа. Если нет — классический проект из одного файла (video).
+   * Если есть — таймлайн собирается из них встык, video хранит канвас (w/h/fps)
+   * и суммарную длительность.
+   */
+  clips?: TimelineClip[] | null;
+  music?: ProjectMusic | null;
   renderFile?: string; // имя файла в workspace/renders
   renderProgress?: number;
 };
+
+/** Длительность клипа на таймлайне */
+export function clipDurationMs(c: TimelineClip): number {
+  return Math.max(c.outMs - c.inMs, 0);
+}
+
+/** Суммарная длительность монтажа */
+export function totalClipsDurationMs(clips: TimelineClip[]): number {
+  return clips.reduce((sum, c) => sum + clipDurationMs(c), 0);
+}
 
 export type CaptionInputProps = {
   videoSrc: string;
@@ -139,4 +199,9 @@ export type CaptionInputProps = {
   width: number;
   height: number;
   durationMs: number;
+  /** превью монтажа: клипы встык вместо videoSrc (финальный рендер получает склейку) */
+  clips?: { src: string; kind: "video" | "image"; inMs: number; outMs: number }[];
+  /** превью музыки */
+  musicSrc?: string | null;
+  musicVolume?: number;
 };
