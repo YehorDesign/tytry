@@ -16,7 +16,11 @@ const FFMPEG = ffmpegPath as unknown as string;
  * на месте (имя сохраняется). Иначе ничего не делает.
  */
 export async function enforceSizeLimit(filePath: string): Promise<void> {
-  const maxMb = getSettings().maxSizeMb ?? 0;
+  await compressToSize(filePath, getSettings().maxSizeMb ?? 0);
+}
+
+/** Пережимает файл на месте под лимит в МБ (0 = ничего не делать). */
+export async function compressToSize(filePath: string, maxMb: number): Promise<void> {
   if (!maxMb || !fs.existsSync(filePath)) return;
   const maxBytes = maxMb * 1024 * 1024;
   if (fs.statSync(filePath).size <= maxBytes) return;

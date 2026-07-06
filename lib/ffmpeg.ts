@@ -254,16 +254,48 @@ export async function extractTimelineAudio(clips: FlattenClip[], outPath: string
 }
 
 /** Извлекает моно-WAV 16 кГц для отправки в Deepgram. */
-export async function extractAudio(videoPath: string, outPath: string) {
+export async function extractAudio(videoPath: string, outPath: string, maxDurationMs?: number) {
   await exec(FFMPEG, [
     "-y",
     "-i", videoPath,
+    ...(maxDurationMs ? ["-t", (maxDurationMs / 1000).toFixed(3)] : []),
     "-vn",
     "-ac", "1",
     "-ar", "16000",
     "-f", "wav",
     outPath,
   ]);
+}
+
+/**
+ * Подмешивает музыку (с лупом) к готовому видео. Видео копируется без
+ * перекодирования — операция почти мгновенная.
+ */
+export async function mixMusic(opts: {
+  videoPath: string;
+  musicPath: string;
+  volume: number;
+  outPath: string;
+}) {
+  const vol = Math.min(Math.max(opts.volume, 0), 1);
+  await exec(
+    FFMPEG,
+    [
+      "-y", "-hide_banner", "-loglevel", "error",
+      "-i", opts.videoPath,
+      "-stream_loop", "-1", "-i", opts.musicPath,
+      "-filter_complex",
+      `[1:a]volume=${vol.toFixed(3)}[am];` +
+        `[0:a][am]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]`,
+      "-map", "0:v",
+      "-map", "[aout]",
+      "-c:v", "copy",
+      "-c:a", "aac", "-b:a", "192k",
+      "-movflags", "+faststart",
+      opts.outPath,
+    ],
+    { maxBuffer: 8 * 1024 * 1024 }
+  );
 }
 
 export async function extractThumbnail(videoPath: string, outPath: string, atSec = 0.3) {

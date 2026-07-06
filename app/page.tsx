@@ -838,6 +838,9 @@ export default function Home() {
             EN
           </button>
         </div>
+        <a className="btn" href="/batch" title={t.batchTitle}>
+          {t.batchMode}
+        </a>
         <button
           className="btn"
           style={{ position: "relative" }}
