@@ -5,6 +5,15 @@ import { createCanvas, type SKRSContext2D } from "@napi-rs/canvas";
 import { easeOutCubic, interpolate, spring } from "../anim";
 import { findActivePage, findActiveWordIndex, groupWordsIntoPages } from "../captions";
 import { resolveStyle } from "../styles";
+import {
+  OVERLAY_FONT_FAMILY,
+  OVERLAY_FONT_WEIGHT,
+  OVERLAY_LINE_HEIGHT,
+  OVERLAY_MAX_W_RATIO,
+  OVERLAY_PAD_X_EM,
+  OVERLAY_PAD_Y_EM,
+  OVERLAY_RADIUS_EM,
+} from "../overlays";
 import type {
   CaptionPage,
   CaptionStyle,
@@ -12,6 +21,7 @@ import type {
   DesignWordVariant,
   Disclaimer,
   StyleOverrides,
+  TextOverlay,
   Word,
 } from "../types";
 import { parseLinearGradient, parseTextShadow, type ParsedShadow } from "./cssparse";
@@ -26,6 +36,8 @@ export type SceneOptions = {
   fps: number;
   /** мелкий текст поверх всего видео на всю длительность */
   disclaimer?: Disclaimer | null;
+  /** текст-плашки (TikTok) со своими таймингами */
+  overlays?: TextOverlay[] | null;
 };
 
 export type Scene = {
@@ -310,11 +322,25 @@ export function createScene(opts: SceneOptions): Scene {
   const disclaimer =
     opts.disclaimer && opts.disclaimer.text.trim() ? opts.disclaimer : null;
 
+  const overlays = (opts.overlays ?? []).filter((o) => o.text.trim());
+
+  /** Индексы активных плашек на этот момент — часть ключа кадра */
+  function overlayKeyAt(ms: number): string {
+    let key = "";
+    for (let i = 0; i < overlays.length; i++) {
+      const o = overlays[i];
+      if (ms >= o.startMs && ms < o.endMs) key += (key ? "," : "") + i;
+    }
+    return key;
+  }
+
   // ── ключ состояния кадра ──
   function frameKey(frame: number): string {
+    const ovKey = overlayKeyAt(msOf(frame));
+    const suffix = ovKey ? `|o${ovKey}` : "";
     const page = findActivePage(pages, msOf(frame));
-    // с дисклеймером «пустой» кадр не пуст — это свой (один) кэшируемый кадр
-    if (!page) return disclaimer ? "disc" : "b";
+    // с дисклеймером/плашкой «пустой» кадр не пуст — свой кэшируемый кадр
+    if (!page) return disclaimer ? `disc${suffix}` : suffix ? `n${suffix}` : "b";
     const idx = pageIndex.get(page) ?? 0;
     const { style } = styleCtxFor(page);
     if (style.mode === "design") {
@@ -322,7 +348,7 @@ export function createScene(opts: SceneOptions): Scene {
         const f = frame - frameOf(w.startMs);
         return f < 0 ? -1 : Math.min(f, DESIGN_SETTLE_FRAMES);
       });
-      return `d${idx}:${parts.join(",")}`;
+      return `d${idx}:${parts.join(",")}${suffix}`;
     }
     const ms = msOf(frame);
     // тайминги анимаций попадают в ключ только если реально влияют на картинку
@@ -343,7 +369,7 @@ export function createScene(opts: SceneOptions): Scene {
       style.mode === "highlight-box" ||
       style.mode === "karaoke" ||
       style.mode === "appear";
-    return `p${idx}:${sincePage}:${needsActive ? active : 0}:${sinceWord}:${needsActive && !started ? 0 : 1}`;
+    return `p${idx}:${sincePage}:${needsActive ? active : 0}:${sinceWord}:${needsActive && !started ? 0 : 1}${suffix}`;
   }
 
   // ── раскладка обычных страниц ──
@@ -775,9 +801,103 @@ export function createScene(opts: SceneOptions): Scene {
     });
   }
 
+  // ── текст-плашки (TikTok): раскладка и отрисовка ──
+  type OverlayLayout = {
+    lines: string[];
+    size: number;
+    font: string;
+    lineH: number;
+    ascent: number;
+    descent: number;
+    boxW: number;
+    boxH: number;
+  };
+  const overlayLayoutCache = new Map<number, OverlayLayout>();
+
+  function layoutOverlay(ctx: SKRSContext2D, i: number): OverlayLayout {
+    const cached = overlayLayoutCache.get(i);
+    if (cached) return cached;
+    const o = overlays[i];
+    const size = Math.max(Math.round(width * o.sizeRatio), 8);
+    const font = fontString(OVERLAY_FONT_FAMILY, OVERLAY_FONT_WEIGHT, size, false);
+    const padX = size * OVERLAY_PAD_X_EM;
+    const padY = size * OVERLAY_PAD_Y_EM;
+    // как в DOM: box-sizing border-box, паддинги внутри max-width
+    const maxTextW = width * OVERLAY_MAX_W_RATIO - 2 * padX;
+    ctx.font = font;
+    const lines: string[] = [];
+    for (const src of o.text.split("\n")) {
+      let line = "";
+      for (const word of src.split(/\s+/).filter(Boolean)) {
+        const probe = line ? `${line} ${word}` : word;
+        if (line && ctx.measureText(probe).width > maxTextW) {
+          lines.push(line);
+          line = word;
+        } else {
+          line = probe;
+        }
+      }
+      lines.push(line);
+    }
+    const clean = lines.filter((l, idx) => l !== "" || idx > 0);
+    const { ascent, descent } = fontMetrics(ctx, font, size);
+    const lineH = size * OVERLAY_LINE_HEIGHT;
+    const textW = Math.max(...clean.map((l) => ctx.measureText(l).width), 0);
+    const layout: OverlayLayout = {
+      lines: clean,
+      size,
+      font,
+      lineH,
+      ascent,
+      descent,
+      boxW: Math.min(textW, maxTextW) + 2 * padX,
+      boxH: clean.length * lineH + 2 * padY,
+    };
+    overlayLayoutCache.set(i, layout);
+    return layout;
+  }
+
+  function drawOverlays(ctx: SKRSContext2D, ms: number) {
+    overlays.forEach((o, i) => {
+      if (ms < o.startMs || ms >= o.endMs) return;
+      const l = layoutOverlay(ctx, i);
+      const cx = width / 2; // по горизонтали всегда центр
+      const cy = o.y * height;
+      ctx.fillStyle = "#FFFFFF";
+      roundRectPath(
+        ctx,
+        cx - l.boxW / 2,
+        cy - l.boxH / 2,
+        l.boxW,
+        l.boxH,
+        l.size * OVERLAY_RADIUS_EM
+      );
+      ctx.fill();
+      const halfLeading = (l.lineH - (l.ascent + l.descent)) / 2;
+      const textTop = cy - l.boxH / 2 + l.size * OVERLAY_PAD_Y_EM;
+      ctx.font = l.font;
+      l.lines.forEach((line, li) => {
+        const w = ctx.measureText(line).width;
+        paintText(ctx, {
+          text: line,
+          x: cx - w / 2,
+          baseline: textTop + li * l.lineH + halfLeading + l.ascent,
+          font: l.font,
+          letterSpacingPx: 0,
+          fill: "#000000",
+          shadows: [],
+          strokeWidth: 0,
+          strokeColor: "#000",
+        });
+      });
+    });
+  }
+
   function drawFrame(ctx: SKRSContext2D, frame: number, offsetY = 0): boolean {
-    const page = findActivePage(pages, msOf(frame));
-    if (!page && !disclaimer) return false;
+    const ms = msOf(frame);
+    const page = findActivePage(pages, ms);
+    const hasOverlay = overlayKeyAt(ms) !== "";
+    if (!page && !disclaimer && !hasOverlay) return false;
     ctx.save();
     if (offsetY) ctx.translate(0, -offsetY);
     drawDisclaimer(ctx); // под субтитрами
@@ -787,6 +907,7 @@ export function createScene(opts: SceneOptions): Scene {
       if (s.style.mode === "design") drawDesignPage(ctx, s, page, idx, frame);
       else drawRegularPage(ctx, s, page, idx, frame);
     }
+    drawOverlays(ctx, ms); // поверх субтитров
     ctx.restore();
     return true;
   }
@@ -826,6 +947,15 @@ export function createScene(opts: SceneOptions): Scene {
         min = Math.min(min, center - half);
         max = Math.max(max, center + half);
       }
+    });
+
+    // текст-плашки тоже живут в полосе
+    overlays.forEach((o, i) => {
+      const l = layoutOverlay(mctx, i);
+      const cy = o.y * height;
+      min = Math.min(min, cy - l.boxH / 2 - l.size * 0.5);
+      max = Math.max(max, cy + l.boxH / 2 + l.size * 0.5);
+      margin = Math.max(margin, l.size);
     });
 
     // дисклеймер тоже живёт в полосе

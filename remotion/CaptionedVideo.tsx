@@ -18,9 +18,21 @@ import type {
   CaptionStyle,
   DesignWordAnim,
   DesignWordVariant,
+  TextOverlay,
   Word,
 } from "../lib/types";
 import { findActivePage, findActiveWordIndex, groupWordsIntoPages } from "../lib/captions";
+import {
+  OVERLAY_FONT_FAMILY,
+  OVERLAY_FONT_WEIGHT,
+  OVERLAY_LINE_HEIGHT,
+  OVERLAY_MAX_W_RATIO,
+  OVERLAY_PAD_X_EM,
+  OVERLAY_PAD_Y_EM,
+  OVERLAY_RADIUS_EM,
+  overlayActiveAt,
+  overlayFontSize,
+} from "../lib/overlays";
 import { resolveStyle } from "../lib/styles";
 import { FONT_FAMILIES } from "./fonts";
 
@@ -34,6 +46,7 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
   musicSrc,
   musicVolume,
   disclaimer,
+  overlays,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -154,6 +167,56 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
       {page ? (
         <CaptionOverlay page={page} ms={ms} style={pageStyle} frameWidth={width} fps={fps} />
       ) : null}
+      {/* текст-плашки (TikTok): поверх субтитров */}
+      {overlays?.map((o) =>
+        overlayActiveAt(o, ms) ? (
+          <TextOverlayBox key={o.id} overlay={o} frameWidth={width} />
+        ) : null
+      )}
+    </AbsoluteFill>
+  );
+};
+
+/** Плашка TikTok: чёрный текст на белом скруглённом прямоугольнике */
+const TextOverlayBox: React.FC<{ overlay: TextOverlay; frameWidth: number }> = ({
+  overlay,
+  frameWidth,
+}) => {
+  const fontSize = overlayFontSize(overlay, frameWidth);
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none" }}>
+      {/* полноширинная flex-обёртка: иначе abs+left:50% режет ширину плашки
+          до половины кадра (shrink-to-fit до правого края) */}
+      <div
+        style={{
+          position: "absolute",
+          top: `${overlay.y * 100}%`,
+          transform: "translateY(-50%)",
+          width: "100%",
+          display: "flex",
+          justifyContent: "center",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: `${OVERLAY_MAX_W_RATIO * 100}%`,
+            boxSizing: "border-box",
+            backgroundColor: "#FFFFFF",
+            color: "#000000",
+            borderRadius: fontSize * OVERLAY_RADIUS_EM,
+            padding: `${fontSize * OVERLAY_PAD_Y_EM}px ${fontSize * OVERLAY_PAD_X_EM}px`,
+            fontFamily: FONT_FAMILIES[OVERLAY_FONT_FAMILY] ?? OVERLAY_FONT_FAMILY,
+            fontWeight: OVERLAY_FONT_WEIGHT,
+            fontSize,
+            lineHeight: OVERLAY_LINE_HEIGHT,
+            textAlign: "center",
+            whiteSpace: "pre-wrap",
+            overflowWrap: "break-word",
+          }}
+        >
+          {overlay.text}
+        </div>
+      </div>
     </AbsoluteFill>
   );
 };

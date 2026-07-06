@@ -36,6 +36,7 @@ export async function renderProjectNative(project: Project, opts: NativeRenderOp
     height,
     fps,
     disclaimer: project.disclaimer,
+    overlays: project.overlays,
   });
 
   // рендерим только полосу, где живут субтитры — в разы меньше данных в пайп

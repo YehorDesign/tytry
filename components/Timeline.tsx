@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { formatTimestamp, groupWordsIntoPages } from "@/lib/captions";
 import type { Dict } from "@/lib/i18n";
-import { clipDurationMs, type CaptionPage, type ProjectMusic, type TimelineClip, type Word } from "@/lib/types";
+import { OVERLAY_MIN_MS } from "@/lib/overlays";
+import { clipDurationMs, type CaptionPage, type ProjectMusic, type TextOverlay, type TimelineClip, type Word } from "@/lib/types";
 
 const MIN_WORD_MS = 80; // минимальная длительность слова при растяжении
 const MIN_CLIP_MS = 200; // минимальная длительность клипа при триме
@@ -29,6 +30,15 @@ type ClipDragState = {
   moved: boolean;
 };
 
+type OverlayDragState = {
+  kind: "omove" | "oleft" | "oright";
+  index: number;
+  startX: number;
+  deltaMs: number;
+  overlays: TextOverlay[]; // снимок
+  moved: boolean;
+};
+
 export const Timeline: React.FC<{
   t: Dict;
   words: Word[];
@@ -39,11 +49,15 @@ export const Timeline: React.FC<{
   clips: TimelineClip[] | null; // null — классический проект, трек клипов скрыт
   music: ProjectMusic | null;
   selectedClipId: string | null;
+  overlays: TextOverlay[] | null;
+  selectedOverlayId: string | null;
   onWordsChange: (words: Word[]) => void;
   onSelectionChange: (ids: Set<string>) => void;
   onDeleteSelected: () => void;
   onClipsChange: (clips: TimelineClip[]) => void;
   onClipSelect: (id: string | null) => void;
+  onOverlaysChange: (overlays: TextOverlay[]) => void;
+  onOverlaySelect: (id: string | null) => void;
   onSeek: (ms: number) => void;
 }> = ({
   t,
@@ -55,16 +69,21 @@ export const Timeline: React.FC<{
   clips,
   music,
   selectedClipId,
+  overlays,
+  selectedOverlayId,
   onWordsChange,
   onSelectionChange,
   onDeleteSelected,
   onClipsChange,
   onClipSelect,
+  onOverlaysChange,
+  onOverlaySelect,
   onSeek,
 }) => {
   const [pps, setPps] = useState(60); // пикселей на секунду
   const [drag, setDrag] = useState<DragState | null>(null);
   const [clipDrag, setClipDrag] = useState<ClipDragState | null>(null);
+  const [overlayDrag, setOverlayDrag] = useState<OverlayDragState | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const anchorPageRef = useRef<number | null>(null); // якорь для shift+клика
 
@@ -317,12 +336,85 @@ export const Timeline: React.FC<{
 
   const visibleClips = clipDrag ? applyClipDrag(clipDrag) : clips;
 
+  // ── текст-плашки: свой трек, двигаем/тримим как клипы ──
+  const applyOverlayDrag = (d: OverlayDragState): TextOverlay[] => {
+    const o = d.overlays[d.index];
+    if (!o) return d.overlays;
+    if (d.kind === "omove") {
+      const dur = o.endMs - o.startMs;
+      const start = Math.min(
+        Math.max(o.startMs + d.deltaMs, 0),
+        Math.max(durationMs - dur, 0)
+      );
+      return d.overlays.map((x, i) =>
+        i === d.index ? { ...x, startMs: start, endMs: start + dur } : x
+      );
+    }
+    if (d.kind === "oleft") {
+      const start = Math.min(
+        Math.max(o.startMs + d.deltaMs, 0),
+        o.endMs - OVERLAY_MIN_MS
+      );
+      return d.overlays.map((x, i) => (i === d.index ? { ...x, startMs: start } : x));
+    }
+    const end = Math.min(
+      Math.max(o.endMs + d.deltaMs, o.startMs + OVERLAY_MIN_MS),
+      durationMs
+    );
+    return d.overlays.map((x, i) => (i === d.index ? { ...x, endMs: end } : x));
+  };
+
+  const startOverlayDrag = (
+    e: React.PointerEvent,
+    kind: OverlayDragState["kind"],
+    index: number
+  ) => {
+    if (!overlays) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const initial: OverlayDragState = {
+      kind,
+      index,
+      startX: e.clientX,
+      deltaMs: 0,
+      overlays,
+      moved: false,
+    };
+    setOverlayDrag(initial);
+
+    const onMove = (ev: PointerEvent) => {
+      initial.deltaMs = pxToMs(ev.clientX - initial.startX);
+      if (Math.abs(ev.clientX - initial.startX) > 4) initial.moved = true;
+      setOverlayDrag({ ...initial });
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      initial.deltaMs = pxToMs(ev.clientX - initial.startX);
+      setOverlayDrag(null);
+      if (!initial.moved) {
+        // клик: выбрать плашку и перемотать к её началу
+        const o = initial.overlays[index];
+        onOverlaySelect(o && o.id !== selectedOverlayId ? o.id : null);
+        if (o) onSeek(o.startMs);
+        return;
+      }
+      const next = applyOverlayDrag(initial);
+      if (next !== initial.overlays) onOverlaysChange(next);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  const visibleOverlays = overlayDrag ? applyOverlayDrag(overlayDrag) : overlays;
+
   const handleTrackClick = (e: React.MouseEvent) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
     onSeek(Math.max(0, Math.min(pxToMs(x), durationMs)));
     if (selectedWordIds.size > 0) onSelectionChange(new Set());
     if (selectedClipId) onClipSelect(null);
+    if (selectedOverlayId) onOverlaySelect(null);
   };
 
   // секундные деления
@@ -338,13 +430,20 @@ export const Timeline: React.FC<{
     return n;
   }, [pages, selectedWordIds]);
 
-  // геометрия дорожек: линейка → клипы (если есть) → субтитры → музыка
+  // геометрия дорожек: линейка → клипы (если есть) → субтитры → плашки → музыка
   const hasClipsLane = !!(visibleClips && visibleClips.length > 0);
+  const hasOverlaysLane = !!(visibleOverlays && visibleOverlays.length > 0);
   const clipsTop = 16;
   const capTop = hasClipsLane ? 52 : 18;
   const capH = 36;
-  const musicTop = capTop + capH + 4;
-  const trackH = music ? musicTop + 26 : capTop + capH + 10;
+  const ovTop = capTop + capH + 4;
+  const ovH = 22;
+  const musicTop = hasOverlaysLane ? ovTop + ovH + 4 : capTop + capH + 4;
+  const trackH = music
+    ? musicTop + 26
+    : hasOverlaysLane
+      ? ovTop + ovH + 10
+      : capTop + capH + 10;
 
   return (
     <div className="timeline">
@@ -494,6 +593,39 @@ export const Timeline: React.FC<{
               );
             })}
           </div>
+
+          {/* ── трек текст-плашек ── */}
+          {hasOverlaysLane && visibleOverlays && (
+            <div className="timeline-lane overlays-lane" style={{ top: ovTop, height: ovH }}>
+              {visibleOverlays.map((o, i) => {
+                const isDragged = overlayDrag?.index === i;
+                const active = currentMs >= o.startMs && currentMs < o.endMs;
+                return (
+                  <div
+                    key={o.id}
+                    className={`overlay-block ${isDragged ? "dragging" : ""} ${active ? "active" : ""} ${o.id === selectedOverlayId ? "selected" : ""}`}
+                    style={{
+                      left: msToPx(o.startMs),
+                      width: Math.max(msToPx(o.endMs - o.startMs), 14),
+                    }}
+                    onPointerDown={(e) => startOverlayDrag(e, "omove", i)}
+                    onClick={(e) => e.stopPropagation()}
+                    title={`${formatTimestamp(o.startMs)} → ${formatTimestamp(o.endMs)}`}
+                  >
+                    <div
+                      className="timeline-handle left"
+                      onPointerDown={(e) => startOverlayDrag(e, "oleft", i)}
+                    />
+                    <span className="clip-block-text">💬 {o.text}</span>
+                    <div
+                      className="timeline-handle right"
+                      onPointerDown={(e) => startOverlayDrag(e, "oright", i)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* ── полоса музыки ── */}
           {music && (

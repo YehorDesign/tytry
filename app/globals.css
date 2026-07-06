@@ -327,6 +327,62 @@ select {
   border: 1px solid var(--border-strong);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
   background: #000;
+  position: relative;
+}
+
+/* интерактивный слой текст-плашек поверх плеера */
+.ov-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+/* полноширинный ряд плашки: центрирует её по горизонтали, как в композиции */
+.ov-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  transform: translateY(-50%);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+/* невидимая копия плашки: та же геометрия, что у плашки в плеере */
+.ov-box {
+  position: relative;
+  pointer-events: auto;
+  cursor: grab;
+  color: transparent;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+  user-select: none;
+  outline: 1.5px dashed transparent;
+  outline-offset: 2px;
+  touch-action: none;
+}
+.ov-box:hover {
+  outline-color: rgba(200, 255, 46, 0.55);
+}
+.ov-box.selected {
+  outline-color: var(--accent);
+}
+.ov-box:active {
+  cursor: grabbing;
+}
+.ov-resize {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #10130a;
+  cursor: nwse-resize;
+  pointer-events: auto;
+  touch-action: none;
 }
 
 .stage-empty {
@@ -1020,6 +1076,49 @@ input[type="color"] {
   font-size: 12.5px;
   font-weight: 700;
   color: #ffb34d;
+}
+
+/* блоки текст-плашек */
+.overlay-block {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #e9ecef, #cfd4da);
+  border: 1px solid #9aa1ab;
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  user-select: none;
+  overflow: hidden;
+  transition: border-color 0.1s, box-shadow 0.1s;
+}
+.overlay-block .clip-block-text {
+  color: #1c2027;
+  font-weight: 600;
+}
+.overlay-block:hover {
+  border-color: #f5f7f9;
+}
+.overlay-block.active {
+  border-color: var(--accent);
+}
+.overlay-block.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-dim), 0 0 12px rgba(200, 255, 46, 0.2);
+}
+.overlay-block.dragging {
+  cursor: grabbing;
+  border-color: var(--accent);
+  z-index: 6;
+  opacity: 0.92;
+}
+.overlay-block .timeline-handle::after {
+  background: #868e98;
+}
+.overlay-block:hover .timeline-handle::after,
+.overlay-block.selected .timeline-handle::after {
+  background: #3a4048;
 }
 
 /* полоса музыки */

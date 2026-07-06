@@ -157,6 +157,21 @@ export type Disclaimer = {
   positionY: number;
 };
 
+/**
+ * Текст-плашка (стиль TikTok): чёрный текст на белом скруглённом
+ * прямоугольнике. По горизонтали всегда центрирована.
+ */
+export type TextOverlay = {
+  id: string;
+  text: string;
+  startMs: number;
+  endMs: number;
+  /** центр плашки по вертикали, доля высоты кадра (0..1) */
+  y: number;
+  /** размер шрифта как доля ширины кадра */
+  sizeRatio: number;
+};
+
 /** Музыка проекта: ссылка на трек из библиотеки */
 export type ProjectMusic = {
   trackId: string;
@@ -193,6 +208,8 @@ export type Project = {
   clips?: TimelineClip[] | null;
   music?: ProjectMusic | null;
   disclaimer?: Disclaimer | null;
+  /** текст-плашки в стиле TikTok */
+  overlays?: TextOverlay[] | null;
   renderFile?: string; // имя файла в workspace/renders
   renderProgress?: number;
 };
@@ -231,4 +248,5 @@ export type CaptionInputProps = {
   musicSrc?: string | null;
   musicVolume?: number;
   disclaimer?: Disclaimer | null;
+  overlays?: TextOverlay[] | null;
 };
