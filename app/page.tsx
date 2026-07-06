@@ -9,6 +9,11 @@ import { Timeline } from "@/components/Timeline";
 import { formatTimestamp, groupWordsIntoPages } from "@/lib/captions";
 import { STRINGS, getLocale, setLocale, type Locale } from "@/lib/i18n";
 import { getClips, projectDurationMs } from "@/lib/montage";
+import {
+  OVERLAY_MAX_SIZE_RATIO,
+  OVERLAY_MIN_SIZE_RATIO,
+  newOverlayId,
+} from "@/lib/overlays";
 import { resolveStyle } from "@/lib/styles";
 import {
   clipDurationMs,
@@ -18,6 +23,7 @@ import {
   type Project,
   type ProjectMusic,
   type StyleOverrides,
+  type TextOverlay,
   type TimelineClip,
   type Word,
   type WordStyle,
@@ -52,6 +58,7 @@ export default function Home() {
   const [parallelRenders, setParallelRenders] = useState(3);
   const [encoder, setEncoder] = useState("auto");
   const [renderEngine, setRenderEngine] = useState("native");
+  const [maxSizeMb, setMaxSizeMb] = useState(0); // 0 = без лимита
   const [savingSettings, setSavingSettings] = useState(false);
 
   // локальное (редактируемое) состояние выбранного проекта
@@ -62,6 +69,9 @@ export default function Home() {
   const [clips, setClips] = useState<TimelineClip[] | null>(null);
   const [music, setMusic] = useState<ProjectMusic | null>(null);
   const [disclaimer, setDisclaimer] = useState<Disclaimer | null>(null);
+  const [overlays, setOverlays] = useState<TextOverlay[] | null>(null);
+  // выбранная текст-плашка (панель + рамка на превью)
+  const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   // глобальные правки «по умолчанию» — подставляются при смене пресета и для новых видео
   const [defaultOverrides, setDefaultOverrides] = useState<StyleOverrides>({
     fontFamily: "Gilroy",
@@ -166,6 +176,7 @@ export default function Home() {
         parallelRenders?: number;
         encoder?: string;
         renderEngine?: string;
+        maxSizeMb?: number;
         defaultOverrides?: StyleOverrides;
       };
       setHasKey(data.hasDeepgramKey);
@@ -174,6 +185,7 @@ export default function Home() {
       setParallelRenders(data.parallelRenders ?? 3);
       setEncoder(data.encoder ?? "auto");
       setRenderEngine(data.renderEngine ?? "native");
+      setMaxSizeMb(data.maxSizeMb ?? 0);
       if (data.defaultOverrides) setDefaultOverrides(data.defaultOverrides);
     } catch {
       // ignore
@@ -192,6 +204,7 @@ export default function Home() {
         parallelRenders,
         encoder,
         renderEngine,
+        maxSizeMb,
       };
       if (keyInput.trim()) body.deepgramApiKey = keyInput.trim();
       await fetch("/api/settings", {
@@ -238,8 +251,10 @@ export default function Home() {
     setClips(project.clips && project.clips.length > 0 ? project.clips : null);
     setMusic(project.music ?? null);
     setDisclaimer(project.disclaimer ?? null);
+    setOverlays(project.overlays && project.overlays.length > 0 ? project.overlays : null);
     setSelectedWordIds(new Set());
     setSelectedClipId(null);
+    setSelectedOverlayId(null);
     setSilenceMsg(null);
     setCurrentMs(0);
   }, []);
@@ -333,7 +348,56 @@ export default function Home() {
     });
   }, [scheduleSave]);
 
-  // Delete/Backspace удаляет выделенные фразы (если фокус не в поле ввода)
+  // ── текст-плашки (TikTok) ──
+  const handleOverlaysChange = useCallback(
+    (next: TextOverlay[]) => {
+      setOverlays(next.length > 0 ? next : null);
+      scheduleSave({ overlays: next });
+    },
+    [scheduleSave]
+  );
+
+  const addOverlay = () => {
+    if (!selected) return;
+    const total = timelineDurationMs || 3000;
+    const start = Math.min(Math.max(Math.round(currentMs), 0), Math.max(total - 500, 0));
+    const end = Math.max(Math.min(start + 2500, total), start + 500);
+    const ov: TextOverlay = {
+      id: newOverlayId(),
+      text: t.overlayDefaultText,
+      startMs: start,
+      endMs: end,
+      y: 0.4,
+      sizeRatio: 0.042,
+    };
+    handleOverlaysChange([...(overlays ?? []), ov]);
+    setSelectedOverlayId(ov.id);
+    seek(start);
+  };
+
+  const selectedOverlay = overlays?.find((o) => o.id === selectedOverlayId) ?? null;
+
+  const updateSelectedOverlay = (patch: Partial<TextOverlay>) => {
+    if (!overlays || !selectedOverlayId) return;
+    handleOverlaysChange(
+      overlays.map((o) => (o.id === selectedOverlayId ? { ...o, ...patch } : o))
+    );
+  };
+
+  const deleteOverlay = useCallback(
+    (id: string) => {
+      setOverlays((prev) => {
+        const next = (prev ?? []).filter((o) => o.id !== id);
+        scheduleSave({ overlays: next });
+        return next.length > 0 ? next : null;
+      });
+      setSelectedOverlayId((cur) => (cur === id ? null : cur));
+    },
+    [scheduleSave]
+  );
+
+  // Delete/Backspace удаляет выделенную плашку или выделенные фразы
+  // (если фокус не в поле ввода)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Delete" && e.key !== "Backspace") return;
@@ -347,11 +411,15 @@ export default function Home() {
         return;
       }
       e.preventDefault();
+      if (selectedOverlayId) {
+        deleteOverlay(selectedOverlayId);
+        return;
+      }
       deleteSelectedPhrases();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [deleteSelectedPhrases]);
+  }, [deleteSelectedPhrases, selectedOverlayId, deleteOverlay]);
 
   // ── клипы монтажа ──
   const handleClipsChange = (next: TimelineClip[]) => {
@@ -999,6 +1067,11 @@ export default function Home() {
                 clips={clips}
                 music={music}
                 disclaimer={disclaimer}
+                overlays={overlays}
+                selectedOverlayId={selectedOverlayId}
+                currentMs={currentMs}
+                onOverlaysChange={handleOverlaysChange}
+                onOverlaySelect={setSelectedOverlayId}
                 playerRef={playerRef}
               />
             ) : (
@@ -1018,7 +1091,10 @@ export default function Home() {
           </div>
 
           {/* таймлайн */}
-          {selected && (pages.length > 0 || (clips && clips.length > 0)) && (
+          {selected &&
+            (pages.length > 0 ||
+              (clips && clips.length > 0) ||
+              (overlays && overlays.length > 0)) && (
             <Timeline
               t={t}
               words={words}
@@ -1029,11 +1105,15 @@ export default function Home() {
               clips={clips}
               music={music}
               selectedClipId={selectedClipId}
+              overlays={overlays}
+              selectedOverlayId={selectedOverlayId}
               onWordsChange={handleWordsChange}
               onSelectionChange={setSelectedWordIds}
               onDeleteSelected={deleteSelectedPhrases}
               onClipsChange={handleClipsChange}
               onClipSelect={setSelectedClipId}
+              onOverlaysChange={handleOverlaysChange}
+              onOverlaySelect={setSelectedOverlayId}
               onSeek={seek}
             />
           )}
@@ -1226,6 +1306,50 @@ export default function Home() {
                         </span>
                       </div>
                     </>
+                  )}
+                </div>
+
+                <div style={{ height: 14 }} />
+                <div className="section-label">{t.overlaySection}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <button className="btn btn-sm" onClick={addOverlay}>
+                    {t.overlayAdd}
+                  </button>
+                  {selectedOverlay ? (
+                    <>
+                      <textarea
+                        className="text-input"
+                        style={{ resize: "vertical", minHeight: 40, fontSize: 12 }}
+                        rows={2}
+                        value={selectedOverlay.text}
+                        onChange={(e) => updateSelectedOverlay({ text: e.target.value })}
+                      />
+                      <div className="control-row">
+                        <span className="control-label">{t.size}</span>
+                        <input
+                          type="range"
+                          min={OVERLAY_MIN_SIZE_RATIO}
+                          max={OVERLAY_MAX_SIZE_RATIO}
+                          step={0.001}
+                          value={selectedOverlay.sizeRatio}
+                          onChange={(e) =>
+                            updateSelectedOverlay({ sizeRatio: Number(e.target.value) })
+                          }
+                        />
+                        <span className="control-value">
+                          {Math.round((selectedOverlay.sizeRatio / 0.042) * 100)}%
+                        </span>
+                      </div>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ color: "var(--danger)" }}
+                        onClick={() => deleteOverlay(selectedOverlay.id)}
+                      >
+                        {t.overlayDelete}
+                      </button>
+                    </>
+                  ) : (
+                    <p className="hint">{t.overlayHint}</p>
                   )}
                 </div>
 
@@ -1459,6 +1583,34 @@ export default function Home() {
                     <option value="chrome">{t.engineChrome}</option>
                   </select>
                 </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <label
+                    className="hint"
+                    style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={maxSizeMb > 0}
+                      onChange={(e) => setMaxSizeMb(e.target.checked ? 30 : 0)}
+                    />
+                    {t.sizeLimitLabel}
+                  </label>
+                  {maxSizeMb > 0 && (
+                    <>
+                      <input
+                        className="text-input"
+                        type="number"
+                        min={5}
+                        max={2000}
+                        value={maxSizeMb}
+                        onChange={(e) => setMaxSizeMb(Number(e.target.value) || 0)}
+                        style={{ width: 80 }}
+                      />
+                      <span className="hint">{t.sizeLimitMb}</span>
+                    </>
+                  )}
+                </div>
+                {maxSizeMb > 0 && <p className="hint">{t.sizeLimitHint}</p>}
                 <p className="hint">{t.parallelHint}</p>
               </div>
             </div>

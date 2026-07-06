@@ -109,6 +109,14 @@ const en = {
   disclaimerSection: "Disclaimer",
   disclaimerPlaceholder: "Small white text shown for the whole video (e.g. “Not medical advice”)",
 
+  // text overlay (TikTok sticker)
+  overlaySection: "Text sticker",
+  overlayAdd: "+ Add sticker",
+  overlayDefaultText: "Your text",
+  overlayDelete: "🗑 Delete sticker",
+  overlayHint:
+    "Black text on a white rounded plate, like TikTok — always horizontally centered. Add one, then drag it up/down on the video, use the corner dot to resize, and drag its block on the timeline to change the timing.",
+
   // frame (zoom / position)
   frameSection: "Frame",
   frameZoom: "Zoom",
@@ -167,6 +175,9 @@ const en = {
   engineLabel: "Render engine",
   engineNative: "Fast (native)",
   engineChrome: "Compatible (Chrome, slow)",
+  sizeLimitLabel: "Limit file size",
+  sizeLimitMb: "MB",
+  sizeLimitHint: "Files over the limit are re-encoded to fit (e.g. 30 MB for ad platforms).",
 
   // style names
   styleNames: {} as Record<string, string>,
@@ -270,6 +281,13 @@ const uk: Dict = {
   disclaimerSection: "Дисклеймер",
   disclaimerPlaceholder: "Дрібний білий текст на все відео (напр. «Not medical advice»)",
 
+  overlaySection: "Текст-плашка",
+  overlayAdd: "+ Додати плашку",
+  overlayDefaultText: "Твій текст",
+  overlayDelete: "🗑 Видалити плашку",
+  overlayHint:
+    "Чорний текст на білій округлій плашці, як у TikTok — по горизонталі завжди в центрі. Додай, потім тягни її вгору/вниз по відео, кутова точка змінює розмір, а тайминги — блоком на таймлайні.",
+
   frameSection: "Кадр",
   frameZoom: "Зум",
   framePosX: "Горизонталь",
@@ -322,6 +340,9 @@ const uk: Dict = {
   engineLabel: "Рушій рендера",
   engineNative: "Швидкий (нативний)",
   engineChrome: "Сумісний (Chrome, повільний)",
+  sizeLimitLabel: "Обмежити розмір файлу",
+  sizeLimitMb: "МБ",
+  sizeLimitHint: "Файли, більші за ліміт, автоматично пережимаються (напр., 30 МБ для рекламних кабінетів).",
 
   styleNames: {
     classic: "Класика",

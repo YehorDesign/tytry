@@ -7,6 +7,7 @@ import { getSettings } from "./settings";
 import { renderProjectNative } from "./render-native/render";
 import { flattenTimeline } from "./ffmpeg";
 import { getClips, needsFlatten } from "./montage";
+import { enforceSizeLimit } from "./compress";
 
 // корень приложения (в упакованном Electron задаётся через env)
 const APP_ROOT = process.env.TYTRY_APP_DIR || process.cwd();
@@ -147,6 +148,8 @@ async function renderNative(projectId: string, job: RenderJob) {
     },
   });
 
+  await enforceSizeLimit(outputLocation);
+
   updateProject(projectId, {
     status: "done",
     renderFile: outputLocation,
@@ -206,6 +209,7 @@ async function renderProjectChrome(projectId: string, job: RenderJob, origin: st
     height: project.video.height,
     durationMs: project.video.durationMs,
     disclaimer: project.disclaimer,
+    overlays: project.overlays,
   };
 
   const composition = await selectComposition({
@@ -232,6 +236,8 @@ async function renderProjectChrome(projectId: string, job: RenderJob, origin: st
       }
     },
   });
+
+  await enforceSizeLimit(outputLocation);
 
   updateProject(projectId, {
     status: "done",

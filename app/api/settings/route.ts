@@ -22,6 +22,7 @@ function payload() {
     parallelRenders: s.parallelRenders ?? 3,
     encoder: s.encoder ?? "auto",
     renderEngine: s.renderEngine ?? "native",
+    maxSizeMb: s.maxSizeMb ?? 0,
     defaultStyleId: s.defaultStyleId ?? "hormozi",
     defaultOverrides: s.defaultOverrides ?? { fontFamily: "Gilroy" },
   };
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest) {
     parallelRenders?: number;
     encoder?: string;
     renderEngine?: string;
+    maxSizeMb?: number;
     defaultStyleId?: string;
     defaultOverrides?: StyleOverrides;
   };
@@ -56,6 +58,11 @@ export async function POST(req: NextRequest) {
   }
   if (body.renderEngine === "native" || body.renderEngine === "chrome") {
     patch.renderEngine = body.renderEngine;
+  }
+  if (typeof body.maxSizeMb === "number") {
+    // 0 = лимит выключен
+    patch.maxSizeMb =
+      body.maxSizeMb <= 0 ? 0 : Math.min(Math.max(Math.round(body.maxSizeMb), 5), 2000);
   }
   if (
     typeof body.defaultStyleId === "string" &&

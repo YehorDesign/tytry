@@ -15,6 +15,8 @@ export type Settings = {
   encoder?: "auto" | "nvenc" | "cpu";
   /** native = быстрый движок без Chrome; chrome = старый Remotion-рендер */
   renderEngine?: "native" | "chrome";
+  /** лимит размера готового файла в МБ (0 или пусто = без лимита) */
+  maxSizeMb?: number;
   /** пресет субтитров для новых проектов */
   defaultStyleId?: string;
   /** правки стиля (шрифт, размер, позиция…) для новых проектов */
