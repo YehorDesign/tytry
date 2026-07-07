@@ -1,13 +1,22 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { CaptionInputProps, Project } from "./types";
-import { MUSIC_DIR, RENDERS_DIR, UPLOADS_DIR, loadProject, updateProject } from "./store";
+import type { CaptionInputProps, Iteration, Project } from "./types";
+import {
+  MUSIC_DIR,
+  RENDERS_DIR,
+  UPLOADS_DIR,
+  loadProject,
+  updateIteration,
+  updateProject,
+} from "./store";
 import { getSettings } from "./settings";
 import { renderProjectNative } from "./render-native/render";
 import { flattenTimeline } from "./ffmpeg";
 import { getClips, needsFlatten } from "./montage";
-import { enforceSizeLimit } from "./compress";
+import { buildIterationProject } from "./iterations";
+import { compressToSize, enforceSizeLimit } from "./compress";
+import { rmFileSync } from "./rmrf";
 
 // корень приложения (в упакованном Electron задаётся через env)
 const APP_ROOT = process.env.TYTRY_APP_DIR || process.cwd();
@@ -57,22 +66,51 @@ export function enqueueRender(projectId: string, origin: string): RenderJob {
   return job;
 }
 
+/**
+ * Ставит рендер итерации в общую очередь. Ключ джоба — `projectId#iterationId`,
+ * чтобы итерации и обычный рендер проекта не мешали друг другу.
+ */
+export function enqueueIteration(
+  projectId: string,
+  iterationId: string,
+  origin: string
+): RenderJob {
+  const key = `${projectId}#${iterationId}`;
+  const existing = state.jobs.get(key);
+  if (existing && (existing.status === "queued" || existing.status === "bundling" || existing.status === "rendering")) {
+    return existing;
+  }
+  const job: RenderJob = { projectId: key, status: "queued", progress: 0 };
+  state.jobs.set(key, job);
+  state.queue.push(key);
+  updateIteration(projectId, iterationId, {
+    status: "queued",
+    progress: 0,
+    error: undefined,
+  });
+  pump(origin);
+  return job;
+}
+
 function pump(origin: string) {
   while (state.queue.length > 0 && state.active < maxParallel()) {
-    const projectId = state.queue.shift()!;
-    const job = state.jobs.get(projectId);
+    const key = state.queue.shift()!;
+    const job = state.jobs.get(key);
     if (!job) continue;
     state.active++;
-    void runJob(projectId, job, origin).finally(() => {
+    void runJob(key, job, origin).finally(() => {
       state.active--;
       pump(origin);
     });
   }
 }
 
-async function runJob(projectId: string, job: RenderJob, origin: string) {
+async function runJob(key: string, job: RenderJob, origin: string) {
+  const [projectId, iterationId] = key.split("#");
   try {
-    if (getSettings().renderEngine === "chrome") {
+    if (iterationId) {
+      await renderIteration(projectId, iterationId, job);
+    } else if (getSettings().renderEngine === "chrome") {
       await renderProjectChrome(projectId, job, origin);
     } else {
       await renderNative(projectId, job);
@@ -83,7 +121,11 @@ async function runJob(projectId: string, job: RenderJob, origin: string) {
     const message = err instanceof Error ? err.message : String(err);
     job.status = "error";
     job.error = message;
-    updateProject(projectId, { status: "error", error: message });
+    if (iterationId) {
+      updateIteration(projectId, iterationId, { status: "error", error: message });
+    } else {
+      updateProject(projectId, { status: "error", error: message });
+    }
   }
 }
 
@@ -148,13 +190,83 @@ async function renderNative(projectId: string, job: RenderJob) {
     },
   });
 
-  await enforceSizeLimit(outputLocation);
+  await applySizeLimit(project, outputLocation);
 
   updateProject(projectId, {
     status: "done",
     renderFile: outputLocation,
     renderProgress: 1,
   });
+}
+
+/** Лимит размера: у батч-проекта — свой (из пресета), иначе глобальный. */
+async function applySizeLimit(project: Project, outputLocation: string) {
+  if (project.batchRef) {
+    await compressToSize(outputLocation, project.batchRef.maxSizeMb);
+  } else {
+    await enforceSizeLimit(outputLocation);
+  }
+}
+
+// ── итерация: хук из выбранных клипов + обычный рендер в папку видоса ──
+// всегда нативный движок: хук в любом случае требует склейки монтажа
+
+async function renderIteration(projectId: string, iterationId: string, job: RenderJob) {
+  const project = loadProject(projectId);
+  if (!project) throw new Error("Project not found");
+  const iteration = project.iterations?.find((i) => i.id === iterationId);
+  if (!iteration) throw new Error("Iteration not found");
+
+  updateIteration(projectId, iterationId, { status: "rendering", progress: 0 });
+  const variant = buildIterationProject(project, iteration);
+
+  job.status = "bundling"; // склейка хук+монтаж
+  const inputPath = await prepareInput(variant);
+
+  job.status = "rendering";
+  const outputLocation = iterationOutputPath(project, iteration);
+  let lastSaved = -1;
+  try {
+    await renderProjectNative(variant, {
+      inputPath,
+      outputPath: outputLocation,
+      encoder: getSettings().encoder ?? "auto",
+      onProgress: (progress) => {
+        job.progress = progress;
+        const pct = Math.round(progress * 100);
+        if (pct !== lastSaved && pct % 4 === 0) {
+          lastSaved = pct;
+          updateIteration(projectId, iterationId, { progress });
+        }
+      },
+    });
+
+    // лимит размера: батчевый (папка видоса) или глобальный из настроек
+    const maxMb = project.batchRef?.maxSizeMb ?? getSettings().maxSizeMb ?? 0;
+    await compressToSize(outputLocation, maxMb);
+  } finally {
+    // промежуточная склейка варианта больше не нужна
+    rmFileSync(path.join(RENDERS_DIR, `${variant.id}_flat.mp4`));
+  }
+
+  updateIteration(projectId, iterationId, {
+    status: "done",
+    progress: 1,
+    file: outputLocation,
+  });
+}
+
+/** Папка видоса (для батч-проектов) или обычная папка вывода. */
+function iterationOutputPath(project: Project, iteration: Iteration): string {
+  let dir = project.batchRef?.outputDir || getSettings().outputDir?.trim() || RENDERS_DIR;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {
+    dir = RENDERS_DIR;
+  }
+  const safeName =
+    project.name.replace(/[<>:"/\\|?* -]/g, "_").trim().slice(0, 60) || project.id;
+  return path.join(dir, `${safeName}_it${iteration.num}.mp4`);
 }
 
 // ── запасной движок: Remotion + headless Chrome (как было раньше) ──
@@ -237,7 +349,7 @@ async function renderProjectChrome(projectId: string, job: RenderJob, origin: st
     },
   });
 
-  await enforceSizeLimit(outputLocation);
+  await applySizeLimit(project, outputLocation);
 
   updateProject(projectId, {
     status: "done",
@@ -246,10 +358,10 @@ async function renderProjectChrome(projectId: string, job: RenderJob, origin: st
   });
 }
 
-/** Папка из настроек (если задана и доступна), иначе workspace/renders. */
+/** Папка видоса (батч) или из настроек (если доступна), иначе workspace/renders. */
 function resolveOutputPath(project: Project): string {
   let dir = RENDERS_DIR;
-  const custom = getSettings().outputDir?.trim();
+  const custom = project.batchRef?.outputDir || getSettings().outputDir?.trim();
   if (custom) {
     try {
       fs.mkdirSync(custom, { recursive: true });

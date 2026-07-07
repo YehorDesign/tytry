@@ -189,6 +189,33 @@ export type MusicTrack = {
   addedAt: string;
 };
 
+/** Привязка проекта к батчу: куда класть итерации и какой лимит размера */
+export type ProjectBatchRef = {
+  /** папка видоса (outputDir батча / имя архива) */
+  outputDir: string;
+  /** лимит размера готового файла в МБ (0 = без лимита) */
+  maxSizeMb: number;
+};
+
+/**
+ * Итерация: выбранные клипы дублируются в НАЧАЛО видео как хук (вместе с
+ * их субтитрами), дальше видео идёт своим чередом. Каждая итерация — свой
+ * рендер в папку видоса: <назва>_it<num>.mp4.
+ */
+export type Iteration = {
+  id: string;
+  /** порядковый номер → имя файла */
+  num: number;
+  /** id клипов проекта в порядке выбора */
+  clipIds: string[];
+  status: "queued" | "rendering" | "done" | "error";
+  progress: number; // 0..1
+  /** абсолютный путь готового файла */
+  file?: string;
+  error?: string;
+  createdAt: string;
+};
+
 export type Project = {
   id: string;
   name: string;
@@ -212,6 +239,10 @@ export type Project = {
   overlays?: TextOverlay[] | null;
   renderFile?: string; // имя файла в workspace/renders
   renderProgress?: number;
+  /** проект создан из батча: итерации кладём в его папку с его лимитом */
+  batchRef?: ProjectBatchRef | null;
+  /** итерации-хуки (управляются сервером, не через PATCH) */
+  iterations?: Iteration[] | null;
 };
 
 /** Длительность клипа на таймлайне */

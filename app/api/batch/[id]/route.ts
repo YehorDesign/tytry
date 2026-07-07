@@ -56,6 +56,6 @@ export async function POST(req: NextRequest, { params }: Params) {
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const { id } = await params;
-  deleteBatch(id);
+  await deleteBatch(id);
   return NextResponse.json({ ok: true });
 }

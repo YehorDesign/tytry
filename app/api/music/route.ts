@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rmFileSync } from "@/lib/rmrf";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
       addMusicTrack(track);
       created.push(track);
     } catch (err) {
-      fs.rmSync(filePath, { force: true });
+      rmFileSync(filePath);
       errors.push({
         name: file.name,
         error: err instanceof Error ? err.message : String(err),

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { MusicTrack, Project } from "./types";
+import { rmFileSync } from "./rmrf";
+import type { Iteration, MusicTrack, Project } from "./types";
 
 // в упакованном приложении Electron подменяет рабочую папку на userData
 export const WORKSPACE =
@@ -40,13 +41,7 @@ export function addMusicTrack(track: MusicTrack) {
 export function deleteMusicTrack(id: string) {
   const tracks = listMusic();
   const track = tracks.find((t) => t.id === id);
-  if (track) {
-    try {
-      fs.rmSync(path.join(MUSIC_DIR, track.fileName), { force: true });
-    } catch {
-      // ignore
-    }
-  }
+  if (track) rmFileSync(path.join(MUSIC_DIR, track.fileName));
   fs.writeFileSync(
     MUSIC_INDEX,
     JSON.stringify(tracks.filter((t) => t.id !== id), null, 2),
@@ -96,6 +91,20 @@ export function updateProject(id: string, patch: Partial<Project>): Project | nu
   return updated;
 }
 
+/** Точечная правка итерации — свежий load, чтобы не затирать чужие правки. */
+export function updateIteration(
+  projectId: string,
+  iterationId: string,
+  patch: Partial<Iteration>
+): Iteration | null {
+  const project = loadProject(projectId);
+  const iteration = project?.iterations?.find((i) => i.id === iterationId);
+  if (!project || !iteration) return null;
+  Object.assign(iteration, patch);
+  saveProject(project);
+  return iteration;
+}
+
 export function deleteProject(id: string) {
   const project = loadProject(id);
   if (!project) return;
@@ -116,12 +125,6 @@ export function deleteProject(id: string) {
     renderInsideWorkspace ? renderPath : null,
     projectFile(id),
   ]) {
-    if (file) {
-      try {
-        fs.rmSync(file, { force: true });
-      } catch {
-        // ignore
-      }
-    }
+    if (file) rmFileSync(file);
   }
 }

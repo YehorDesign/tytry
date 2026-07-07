@@ -8,12 +8,18 @@ import { StylePanel } from "@/components/StylePanel";
 import { Timeline } from "@/components/Timeline";
 import { formatTimestamp, groupWordsIntoPages } from "@/lib/captions";
 import { STRINGS, getLocale, setLocale, type Locale } from "@/lib/i18n";
-import { getClips, projectDurationMs } from "@/lib/montage";
+import { getClips, projectDurationMs, remapWordsToClips } from "@/lib/montage";
 import {
   OVERLAY_MAX_SIZE_RATIO,
   OVERLAY_MIN_SIZE_RATIO,
   newOverlayId,
 } from "@/lib/overlays";
+import {
+  computeClipTrims,
+  shiftWordsByTrims,
+  totalTrimMs,
+  trimmedClipCount,
+} from "@/lib/silence";
 import { resolveStyle } from "@/lib/styles";
 import {
   clipDurationMs,
@@ -35,7 +41,6 @@ const PreviewPlayer = dynamic(
 );
 
 const FPS = 30;
-const MIN_SHIFTED_MS = 40; // защита от отрицательных таймингов после сдвига слов
 
 export default function Home() {
   const [locale, setLocaleState] = useState<Locale>("uk");
@@ -85,6 +90,11 @@ export default function Home() {
   // мультивыбор проектов в списке
   const [railSelectMode, setRailSelectMode] = useState(false);
   const [railSelected, setRailSelected] = useState<Set<string>>(new Set());
+
+  // режим «итерация»: клики по клипам собирают хук (по порядку выбора)
+  const [hookMode, setHookMode] = useState(false);
+  const [hookSelection, setHookSelection] = useState<string[]>([]);
+  const [iterPreviewId, setIterPreviewId] = useState<string | null>(null);
 
   // музыкальная библиотека
   const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
@@ -256,8 +266,29 @@ export default function Home() {
     setSelectedClipId(null);
     setSelectedOverlayId(null);
     setSilenceMsg(null);
+    setHookMode(false);
+    setHookSelection([]);
+    setIterPreviewId(null);
     setCurrentMs(0);
   }, []);
+
+  // ── открытие проекта по ссылке (кнопка «Таймлайн» на батч-странице) ──
+  const pendingUrlProject = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (pendingUrlProject.current === undefined) {
+      pendingUrlProject.current = new URLSearchParams(window.location.search).get(
+        "project"
+      );
+    }
+    const wanted = pendingUrlProject.current;
+    if (!wanted) return;
+    const project = projects.find((p) => p.id === wanted);
+    if (project) {
+      pendingUrlProject.current = null;
+      selectProject(project);
+      window.history.replaceState(null, "", "/");
+    }
+  }, [projects, selectProject]);
 
   // ── отложенное сохранение правок ──
   const scheduleSave = useCallback((patch: Partial<Project>) => {
@@ -421,8 +452,18 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKey);
   }, [deleteSelectedPhrases, selectedOverlayId, deleteOverlay]);
 
-  // ── клипы монтажа ──
+  // ── клипы монтажа: субтитры едут вместе с клипами ──
   const handleClipsChange = (next: TimelineClip[]) => {
+    const base = clips ?? (selected ? getClips(selected) : null);
+    if (base && words.length > 0) {
+      const nextWords = remapWordsToClips(words, base, next);
+      if (nextWords !== words) {
+        setWords(nextWords);
+        setClips(next);
+        scheduleSave({ clips: next, words: nextWords });
+        return;
+      }
+    }
     setClips(next);
     scheduleSave({ clips: next });
   };
@@ -503,68 +544,85 @@ export default function Home() {
     if (music?.trackId === id) setProjectMusic(null);
   };
 
-  // ── «прибрати тишу»: трим по краям по таймінгам слов ──
+  // ── «прибрати тишу»: тримы по краям КАЖДОГО клипа по таймингам слов ──
   const deleteSilence = () => {
     if (!selected) return;
     if (words.length === 0) {
       setSilenceMsg(t.silenceNeedWords);
       return;
     }
-    const sorted = [...words].sort((a, b) => a.startMs - b.startMs);
-    const first = sorted[0];
-    const last = sorted[sorted.length - 1];
-    const PAD = 150; // небольшой запас, чтобы речь не начиналась впритык
-    const lead = Math.max(first.startMs - PAD, 0);
-    const tail = Math.max(timelineDurationMs - last.endMs - PAD, 0);
-    if (lead < 100 && tail < 100) {
-      setSilenceMsg(t.silenceNothing);
-      return;
-    }
-
     const base = clips ?? getClips(selected);
-    const next = base.map((c) => ({ ...c }));
-    // границы клипов на таймлайне — сцены без слов не трогаем вовсе
-    const starts: number[] = [];
-    let acc = 0;
-    for (const c of next) {
-      starts.push(acc);
-      acc += clipDurationMs(c);
-    }
-
-    // начало: режем только если первое слово звучит внутри ПЕРВОГО клипа
-    let leadTrim = 0;
-    if (first.startMs < starts[0] + clipDurationMs(next[0])) {
-      leadTrim = Math.min(lead, Math.max(clipDurationMs(next[0]) - 200, 0));
-      next[0].inMs += leadTrim;
-    }
-    // конец: только если последнее слово внутри ПОСЛЕДНЕГО клипа
-    // (ендкард/дисклеймер без речи остаётся как есть)
-    const lastIdx = next.length - 1;
-    let tailTrim = 0;
-    if (last.endMs > starts[lastIdx]) {
-      tailTrim = Math.min(tail, Math.max(clipDurationMs(next[lastIdx]) - 200, 0));
-      next[lastIdx].outMs -= tailTrim;
-    }
-    if (leadTrim < 1 && tailTrim < 1) {
+    const durations = base.map(clipDurationMs);
+    const trims = computeClipTrims(durations, words);
+    const total = totalTrimMs(trims);
+    if (total < 1) {
       setSilenceMsg(t.silenceNothing);
       return;
     }
-
+    const next = base.map((c, i) => ({
+      ...c,
+      inMs: c.inMs + trims[i].lead,
+      outMs: c.outMs - trims[i].tail,
+    }));
     // сдвигаем субтитры, чтобы остались на своих словах
-    const nextWords =
-      leadTrim > 0
-        ? words.map((w) => ({
-            ...w,
-            startMs: Math.max(w.startMs - leadTrim, 0),
-            endMs: Math.max(w.endMs - leadTrim, MIN_SHIFTED_MS),
-          }))
-        : words;
+    const nextWords = shiftWordsByTrims(words, durations, trims);
 
     setClips(next);
     setWords(nextWords);
     setSelectedWordIds(new Set());
     scheduleSave({ clips: next, words: nextWords });
-    setSilenceMsg(t.silenceTrimmed(leadTrim, tailTrim));
+    setSilenceMsg(t.silenceTrimmed(total, trimmedClipCount(trims)));
+  };
+
+  // ── итерации: хук из выбранных клипов в начало ──
+  const toggleHookClip = (clipId: string) => {
+    setHookSelection((prev) =>
+      prev.includes(clipId) ? prev.filter((c) => c !== clipId) : [...prev, clipId]
+    );
+  };
+
+  const startHookMode = () => {
+    // классический проект: показываем дорожку клипов (один клип = весь ролик),
+    // чтобы было что тыкать — как это делает панель «Кадр» при первой правке
+    if (!clips && selected) {
+      const base = getClips(selected);
+      setClips(base);
+      scheduleSave({ clips: base });
+    }
+    setHookMode(true);
+    setHookSelection([]);
+    setSelectedClipId(null);
+  };
+
+  const cancelHookMode = () => {
+    setHookMode(false);
+    setHookSelection([]);
+  };
+
+  const renderIteration = async () => {
+    const id = selectedIdRef.current;
+    if (!id || hookSelection.length === 0) return;
+    setHookMode(false);
+    const clipIds = hookSelection;
+    setHookSelection([]);
+    await fetch(`/api/projects/${id}/iterate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clipIds }),
+    }).catch(() => {});
+    await refresh();
+  };
+
+  const deleteIteration = async (iterationId: string) => {
+    const id = selectedIdRef.current;
+    if (!id) return;
+    if (!confirm(t.iterDeleteConfirm)) return;
+    await fetch(`/api/projects/${id}/iterate`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ iterationId }),
+    }).catch(() => {});
+    await refresh();
   };
 
   // ── глобальные действия со стилем ──
@@ -1110,6 +1168,9 @@ export default function Home() {
               selectedClipId={selectedClipId}
               overlays={overlays}
               selectedOverlayId={selectedOverlayId}
+              hookMode={hookMode}
+              hookSelection={hookSelection}
+              onHookToggle={toggleHookClip}
               onWordsChange={handleWordsChange}
               onSelectionChange={setSelectedWordIds}
               onDeleteSelected={deleteSelectedPhrases}
@@ -1196,6 +1257,103 @@ export default function Home() {
                   </button>
                   {silenceMsg && <p className="hint">{silenceMsg}</p>}
                 </div>
+
+                {/* ── итерации: хук из выбранных клипов (любой проект) ── */}
+                {selected.status !== "transcribing" && (
+                  <>
+                    <div style={{ height: 14 }} />
+                    <div className="section-label">{t.iterSection}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {!hookMode ? (
+                        <button className="btn btn-sm" onClick={startHookMode}>
+                          {t.iterAdd}
+                        </button>
+                      ) : (
+                        <>
+                          <p className="hint">{t.iterHint}</p>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button
+                              className="btn btn-sm btn-accent"
+                              style={{ flex: 1 }}
+                              disabled={hookSelection.length === 0}
+                              onClick={renderIteration}
+                            >
+                              {t.iterRender(hookSelection.length)}
+                            </button>
+                            <button className="btn btn-sm btn-ghost" onClick={cancelHookMode}>
+                              {t.iterCancel}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      {(selected.iterations ?? []).length === 0 && !hookMode && (
+                        <p className="hint">{t.iterEmpty}</p>
+                      )}
+                      {(selected.iterations ?? []).map((it) => (
+                        <div key={it.id} className="iter-row">
+                          <span className="iter-name">it{it.num}</span>
+                          {(it.status === "queued" || it.status === "rendering") && (
+                            <>
+                              <div className="progress-track" style={{ flex: 1 }}>
+                                <div
+                                  className="progress-fill"
+                                  style={{ width: `${Math.round(it.progress * 100)}%` }}
+                                />
+                              </div>
+                              <span className="hint">
+                                {it.status === "queued"
+                                  ? t.batchStatusQueued
+                                  : `${Math.round(it.progress * 100)}%`}
+                              </span>
+                            </>
+                          )}
+                          {it.status === "error" && (
+                            <span
+                              className="hint"
+                              style={{ flex: 1, color: "var(--danger)" }}
+                              title={it.error}
+                            >
+                              {t.batchStatusError}
+                            </span>
+                          )}
+                          {it.status === "done" && (
+                            <>
+                              <span className="hint" style={{ flex: 1 }}>
+                                {t.batchStatusDone}
+                              </span>
+                              <button
+                                className="btn btn-sm btn-ghost"
+                                onClick={() => setIterPreviewId(it.id)}
+                              >
+                                ▶
+                              </button>
+                              {typeof window !== "undefined" &&
+                                window.titryNative &&
+                                it.file && (
+                                  <button
+                                    className="btn btn-sm btn-ghost"
+                                    title={it.file}
+                                    onClick={() =>
+                                      window.titryNative?.showInFolder(it.file!)
+                                    }
+                                  >
+                                    📂
+                                  </button>
+                                )}
+                            </>
+                          )}
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            style={{ color: "var(--danger)" }}
+                            onClick={() => deleteIteration(it.id)}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
 
                 <div style={{ height: 14 }} />
                 <div className="section-label">{t.frameSection}</div>
@@ -1491,6 +1649,29 @@ export default function Home() {
           )}
         </aside>
       </div>
+
+      {/* ───── предпросмотр итерации ───── */}
+      {iterPreviewId && selected && (
+        <div className="modal-overlay" onClick={() => setIterPreviewId(null)}>
+          <div
+            className="modal"
+            style={{ maxWidth: 420, padding: 12 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-title">
+              {selected.name}_it
+              {selected.iterations?.find((i) => i.id === iterPreviewId)?.num}
+            </div>
+            <video
+              key={iterPreviewId}
+              src={`/api/projects/${selected.id}/iterate?file=${iterPreviewId}`}
+              controls
+              autoPlay
+              style={{ width: "100%", maxHeight: "70vh", borderRadius: 8 }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* ───── настройки ───── */}
       {settingsOpen && (

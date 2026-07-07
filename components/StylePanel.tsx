@@ -105,8 +105,9 @@ export const StylePanel: React.FC<{
   onOverridesChange: (overrides: StyleOverrides) => void;
   onClearSelection?: () => void;
   onResetSegmentStyle?: () => void;
-  onApplyToAll: () => Promise<void>;
-  onSaveDefaults: () => Promise<void>;
+  /** без этих колбэков секция глобальных действий скрыта (напр. в пресетах батча) */
+  onApplyToAll?: () => Promise<void>;
+  onSaveDefaults?: () => Promise<void>;
 }> = ({
   t,
   styleId,
@@ -288,7 +289,7 @@ export const StylePanel: React.FC<{
       )}
 
       {/* глобальные действия прячем в режиме выделения — они про весь проект */}
-      {selectionCount === 0 && (
+      {selectionCount === 0 && onApplyToAll && onSaveDefaults && (
         <>
           <div style={{ height: 18 }} />
           <div className="section-label">{t.globalSection}</div>

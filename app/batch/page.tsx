@@ -3,10 +3,17 @@
 // Батч-режим: ZIP-архивы → монтаж + субтитры + музыка + ендкард по пресету.
 // Отдельная страница, чтобы не перегружать основной редактор.
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { StylePanel } from "@/components/StylePanel";
 import { STRINGS, getLocale, type Locale } from "@/lib/i18n";
-import { CAPTION_STYLES } from "@/lib/styles";
-import type { MusicTrack } from "@/lib/types";
+import type { MusicTrack, StyleOverrides } from "@/lib/types";
 import type { BatchItemStatus, BatchPreset, Endcard } from "@/lib/batch/types";
+
+// живое превью субтитров (Remotion Player) — только в браузере
+const PresetPreview = dynamic(
+  () => import("@/components/PresetPreview").then((m) => m.PresetPreview),
+  { ssr: false }
+);
 
 type PresentedItem = {
   id: string;
@@ -17,6 +24,7 @@ type PresentedItem = {
   error?: string;
   outputFile?: string;
   cleanFile?: string;
+  projectId?: string;
   clipCount?: number;
   durationMs?: number;
 };
@@ -27,7 +35,7 @@ type PresentedBatch = {
   createdAt: string;
   preset: BatchPreset;
   outputDir: string;
-  cleanDir: string;
+  cleanDir?: string;
   paused: boolean;
   items: PresentedItem[];
 };
@@ -552,6 +560,16 @@ export default function BatchPage() {
                         ▶ {t.batchPreview}
                       </button>
                     )}
+                    {item.projectId && item.status === "done" && (
+                      <a
+                        className="btn btn-sm"
+                        style={{ textDecoration: "none" }}
+                        href={`/?project=${item.projectId}`}
+                        title={t.iterSection}
+                      >
+                        🎬 {t.batchOpenTimeline}
+                      </a>
+                    )}
                     {item.cleanFile && (
                       <button
                         className="btn btn-sm btn-ghost"
@@ -608,11 +626,29 @@ export default function BatchPage() {
         <div className="modal-overlay" onClick={() => setPresetOpen(false)}>
           <div
             className="modal"
-            style={{ maxWidth: 480, maxHeight: "85vh", overflowY: "auto" }}
+            style={{ maxWidth: 980, width: "min(94vw, 980px)", maxHeight: "92vh", overflowY: "auto" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-title">{t.presetManage}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
+            {/* живое превью: как будут выглядеть субтитры и дисклеймер */}
+            {editPreset.captions !== false && (
+              <div style={{ width: 280, flexShrink: 0, position: "sticky", top: 4 }}>
+                <PresetPreview
+                  styleId={editPreset.styleId ?? "hormozi"}
+                  overrides={editPreset.overrides ?? {}}
+                  disclaimer={editPreset.disclaimer ?? null}
+                  sampleWords={t.presetPreviewWords}
+                  hint={t.presetPreviewHint}
+                  onPositionYChange={(y) =>
+                    setEditPreset((p) =>
+                      p ? { ...p, overrides: { ...(p.overrides ?? {}), positionY: y } } : p
+                    )
+                  }
+                />
+              </div>
+            )}
+            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
               <div>
                 <div className="section-label">{t.presetName}</div>
                 <input
@@ -647,20 +683,6 @@ export default function BatchPage() {
               {editPreset.captions !== false && (
                 <>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span className="hint" style={{ flex: 1 }}>{t.presetStyle}</span>
-                    <select
-                      className="select"
-                      value={editPreset.styleId ?? "hormozi"}
-                      onChange={(e) => setEditPreset({ ...editPreset, styleId: e.target.value })}
-                    >
-                      {CAPTION_STYLES.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {t.styleNames[s.id] ?? s.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <span className="hint" style={{ flex: 1 }}>{t.presetLanguage}</span>
                     <select
                       className="select"
@@ -673,6 +695,16 @@ export default function BatchPage() {
                       <option value="en">{t.langEn}</option>
                     </select>
                   </div>
+                  <div className="section-label">{t.presetStyleSection}</div>
+                  <StylePanel
+                    t={t}
+                    styleId={editPreset.styleId ?? "hormozi"}
+                    overrides={editPreset.overrides ?? {}}
+                    onStyleChange={(styleId) => setEditPreset({ ...editPreset, styleId })}
+                    onOverridesChange={(overrides: StyleOverrides) =>
+                      setEditPreset({ ...editPreset, overrides })
+                    }
+                  />
                 </>
               )}
 
@@ -695,6 +727,54 @@ export default function BatchPage() {
                   }
                 />
                 <p className="hint">{t.presetDisclaimerHint}</p>
+                {editPreset.disclaimer?.text?.trim() && (
+                  <>
+                    <div className="control-row">
+                      <span className="control-label">{t.size}</span>
+                      <input
+                        type="range"
+                        min={0.01}
+                        max={0.05}
+                        step={0.001}
+                        value={editPreset.disclaimer.sizeRatio}
+                        onChange={(e) =>
+                          setEditPreset({
+                            ...editPreset,
+                            disclaimer: {
+                              ...editPreset.disclaimer!,
+                              sizeRatio: Number(e.target.value),
+                            },
+                          })
+                        }
+                      />
+                      <span className="control-value">
+                        {Math.round((editPreset.disclaimer.sizeRatio / 0.018) * 100)}%
+                      </span>
+                    </div>
+                    <div className="control-row">
+                      <span className="control-label">{t.position}</span>
+                      <input
+                        type="range"
+                        min={0.03}
+                        max={0.97}
+                        step={0.01}
+                        value={editPreset.disclaimer.positionY}
+                        onChange={(e) =>
+                          setEditPreset({
+                            ...editPreset,
+                            disclaimer: {
+                              ...editPreset.disclaimer!,
+                              positionY: Number(e.target.value),
+                            },
+                          })
+                        }
+                      />
+                      <span className="control-value">
+                        {Math.round(editPreset.disclaimer.positionY * 100)}%
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -821,6 +901,7 @@ export default function BatchPage() {
                   {savingPreset ? t.saving : t.presetSave}
                 </button>
               </div>
+            </div>
             </div>
           </div>
         </div>

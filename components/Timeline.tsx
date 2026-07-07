@@ -51,6 +51,10 @@ export const Timeline: React.FC<{
   selectedClipId: string | null;
   overlays: TextOverlay[] | null;
   selectedOverlayId: string | null;
+  /** режим «итерация»: клики по клипам собирают хук (по порядку выбора) */
+  hookMode?: boolean;
+  hookSelection?: string[];
+  onHookToggle?: (clipId: string) => void;
   onWordsChange: (words: Word[]) => void;
   onSelectionChange: (ids: Set<string>) => void;
   onDeleteSelected: () => void;
@@ -71,6 +75,9 @@ export const Timeline: React.FC<{
   selectedClipId,
   overlays,
   selectedOverlayId,
+  hookMode,
+  hookSelection,
+  onHookToggle,
   onWordsChange,
   onSelectionChange,
   onDeleteSelected,
@@ -305,12 +312,19 @@ export const Timeline: React.FC<{
       initial.deltaMs = pxToMs(ev.clientX - initial.startX);
       setClipDrag(null);
       if (!initial.moved) {
-        // клик: выбрать клип (для панели «Кадр») и перемотать к его началу
         const id = initial.clips[clipIndex]?.id ?? null;
+        // режим итерации: клик добавляет/убирает клип из хука
+        if (hookMode && id && onHookToggle) {
+          onHookToggle(id);
+          onSeek(clipStarts[clipIndex] ?? 0);
+          return;
+        }
+        // клик: выбрать клип (для панели «Кадр») и перемотать к его началу
         onClipSelect(id === selectedClipId ? null : id);
         onSeek(clipStarts[clipIndex] ?? 0);
         return;
       }
+      if (hookMode) return; // в режиме итерации клипы не двигаем
       if (kind === "cmove") {
         const to = clipDropIndex(initial);
         if (to !== clipIndex) {
@@ -507,10 +521,11 @@ export const Timeline: React.FC<{
                         for (let k = 0; k < i; k++) acc += clipDurationMs(visibleClips[k]);
                         return acc;
                       })();
+                const hookIdx = hookMode ? (hookSelection ?? []).indexOf(clip.id) : -1;
                 return (
                   <div
                     key={clip.id}
-                    className={`clip-block ${isDragged ? "dragging" : ""} ${clip.kind === "image" ? "image" : ""} ${clip.id === selectedClipId ? "selected" : ""}`}
+                    className={`clip-block ${isDragged ? "dragging" : ""} ${clip.kind === "image" ? "image" : ""} ${clip.id === selectedClipId ? "selected" : ""} ${hookMode ? "hookable" : ""} ${hookIdx >= 0 ? "hooked" : ""}`}
                     style={{
                       left: msToPx(start),
                       width: Math.max(msToPx(clipDurationMs(clip)), 16),
@@ -519,6 +534,7 @@ export const Timeline: React.FC<{
                     onClick={(e) => e.stopPropagation()}
                     title={`${clip.originalName} · ${formatTimestamp(clipDurationMs(clip))}`}
                   >
+                    {hookIdx >= 0 && <span className="hook-badge">{hookIdx + 1}</span>}
                     <div
                       className="timeline-handle left"
                       onPointerDown={(e) => startClipDrag(e, "cleft", i)}

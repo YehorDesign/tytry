@@ -40,7 +40,6 @@ export async function POST(req: NextRequest) {
     createdAt: new Date().toISOString(),
     preset, // снапшот: правки пресета не влияют на уже созданный батч
     outputDir,
-    cleanDir: path.join(outputDir, "clean"),
     paused: false,
     items: [],
   };

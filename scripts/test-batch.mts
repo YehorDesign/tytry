@@ -10,7 +10,8 @@ import ffmpegPath from "ffmpeg-static";
 const FFMPEG = ffmpegPath as unknown as string;
 const ws = process.env.TYTRY_WORKSPACE!;
 if (!ws) throw new Error("TYTRY_WORKSPACE required");
-fs.rmSync(ws, { recursive: true, force: true });
+// НЕ fs.rmSync: в Node 24 на Windows он молча не удаляет кириллические пути
+await fs.promises.rm(ws, { recursive: true, force: true });
 fs.mkdirSync(ws, { recursive: true });
 
 // ключ Deepgram берём из реального workspace приложения
@@ -129,7 +130,7 @@ savePreset(preset);
 const outDir = path.join(ws, "out");
 const batch = {
   id: "b1", name: "Test batch", createdAt: new Date().toISOString(),
-  preset, outputDir: outDir, cleanDir: path.join(outDir, "clean"),
+  preset, outputDir: outDir,
   paused: false,
   items: fs.readdirSync(zipsDir).map((zip, i) => ({
     id: `item${i}`,
@@ -179,17 +180,67 @@ assert(empty.status === "error" && !!empty.error, "архив без видео 
 assert(!fs.existsSync(path.join(ws, "batches", "b1", "work", ok.id)), "рабочая папка успешного элемента убрана");
 
 // трим тишины: клип с 2с тишины в начале и ~2с в конце должен ужаться
+const ffprobe = (await import("ffprobe-static")).default.path;
+const probeDur = (file: string) =>
+  Number(
+    execFileSync(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]).toString()
+  );
 const trimmed = b.items.find((i) => i.name.includes("trim"))!;
 assert(trimmed.status === "done", "архив с тишиной обработан");
 if (trimmed.outputFile) {
-  const ffprobe = (await import("ffprobe-static")).default.path;
-  const dur = Number(
-    execFileSync(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", trimmed.outputFile]).toString()
-  );
-  const srcDur = Number(
-    execFileSync(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", padded]).toString()
-  );
+  const dur = probeDur(trimmed.outputFile);
+  const srcDur = probeDur(padded);
   const expectedMax = srcDur + 3 /* ендкард */ - 3 /* минимум сколько должны срезать */;
   console.log(`  срез тишины: исходник ${srcDur.toFixed(1)}с → финал ${dur.toFixed(1)}с (макс. допустимо ${expectedMax.toFixed(1)}с)`);
   assert(dur < expectedMax, "тишина по краям срезана");
+}
+
+// ── папки по архивам ──
+const okDir = path.join(outDir, ok.name);
+assert(ok.outputFile === path.join(okDir, `${ok.name}.mp4`), "финал лежит в папке с именем архива");
+assert(ok.cleanFile === path.join(okDir, `${ok.name}_clean.mp4`), "clean лежит в той же папке");
+
+// ── проект редактора из готового элемента ──
+const { loadProject, updateProject } = await import("../lib/store");
+assert(!!ok.projectId, "у готового элемента есть projectId");
+const project = loadProject(ok.projectId ?? "")!;
+assert(!!project, "проект редактора создан и читается");
+if (!project) {
+  console.error("Без проекта дальше проверять нечего");
+  process.exit(1);
+}
+assert((project.clips ?? []).length === 3, "клипы проекта: 2 видео + ендкард");
+assert((project.words ?? []).length > 0, "слова перенесены в проект");
+assert(project.batchRef?.outputDir === okDir, "batchRef указывает на папку видоса");
+assert(fs.existsSync(path.join(ws, "uploads", project.video.fileName)), "склейка переехала в uploads");
+assert(!!project.music && !!project.disclaimer, "музыка и дисклеймер перенесены");
+
+// ── итерация: хук из первого клипа в начало ──
+console.log("\nИтерация: дублируем первый клип в начало…");
+updateProject(project.id, {
+  iterations: [{
+    id: "itx1", num: 1, clipIds: [project.clips![0].id],
+    status: "queued", progress: 0, createdAt: new Date().toISOString(),
+  }],
+});
+const { enqueueIteration } = await import("../lib/jobs");
+enqueueIteration(project.id, "itx1", "http://127.0.0.1:3000");
+const tIter = Date.now();
+for (;;) {
+  await new Promise((r) => setTimeout(r, 2000));
+  const it = loadProject(project.id)!.iterations![0];
+  console.log(`iteration: ${it.status}${it.status === "rendering" ? ` ${Math.round(it.progress * 100)}%` : ""}${it.error ? ` (${it.error})` : ""}`);
+  if (it.status === "done" || it.status === "error") break;
+  if (Date.now() - tIter > 10 * 60 * 1000) throw new Error("iteration timeout");
+}
+const iterDone = loadProject(project.id)!.iterations![0];
+assert(iterDone.status === "done" && !!iterDone.file && fs.existsSync(iterDone.file!), "итерация отрендерена");
+if (iterDone.file) {
+  assert(path.dirname(iterDone.file) === okDir, "итерация лежит в папке видоса");
+  const hookSec = (project.clips![0].outMs - project.clips![0].inMs) / 1000;
+  const iterDur = probeDur(iterDone.file);
+  const origDur = probeDur(ok.outputFile!);
+  console.log(`  длительности: оригинал ${origDur.toFixed(1)}с + хук ${hookSec.toFixed(1)}с → итерация ${iterDur.toFixed(1)}с`);
+  assert(Math.abs(iterDur - (origDur + hookSec)) < 0.7, "длительность итерации = оригинал + хук");
+  assert(fs.statSync(iterDone.file).size <= 30 * 1024 * 1024, "итерация уложилась в лимит 30 МБ");
 }

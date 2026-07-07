@@ -69,6 +69,10 @@ export type BatchItem = {
   /** абсолютные пути готовых файлов */
   outputFile?: string;
   cleanFile?: string;
+  /** id проекта редактора, созданного из готового видео (итерации) */
+  projectId?: string;
+  /** сегменты склейки по порядку (после тримов, с ендкардом) — границы клипов */
+  segments?: { name: string; durMs: number }[];
   clipCount?: number;
   /** длительность монтажа БЕЗ ендкарда (для отсечки аудио перед Deepgram) */
   clipsDurationMs?: number;
@@ -83,8 +87,8 @@ export type Batch = {
   /** снапшот пресета на момент создания — правки пресета не влияют на батч */
   preset: BatchPreset;
   outputDir: string;
-  /** папка для «чистых» дублей */
-  cleanDir: string;
+  /** legacy: раньше «чистые» дубли лежали в общей папке; теперь всё в папке видоса */
+  cleanDir?: string;
   paused: boolean;
   items: BatchItem[];
 };

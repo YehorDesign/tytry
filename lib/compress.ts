@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import ffmpegPath from "ffmpeg-static";
+import { rmFileSync } from "./rmrf";
 import { probeMedia, type MediaProbe } from "./ffmpeg";
 import { detectEncoder, type EncoderChoice } from "./render-native/encoder";
 import { getSettings } from "./settings";
@@ -42,10 +43,10 @@ export async function compressToSize(filePath: string, maxMb: number): Promise<v
       // перебрали — ужимаем бюджет пропорционально перебору и пробуем ещё раз
       budgetKbit *= (maxBytes / size) * 0.97;
     }
-    fs.rmSync(filePath);
+    rmFileSync(filePath);
     fs.renameSync(tmp, filePath);
   } finally {
-    fs.rmSync(tmp, { force: true });
+    rmFileSync(tmp);
   }
 }
 

@@ -127,11 +127,11 @@ const en = {
 
   // silence
   deleteSilence: "✂ Delete silence",
-  deleteSilenceTitle: "Trim silence at the start and end using transcription timings",
+  deleteSilenceTitle: "Trim silence at the edges of every clip using transcription timings",
   silenceNeedWords: "Transcribe first — silence is detected from word timings.",
-  silenceNothing: "No silence found at the edges.",
-  silenceTrimmed: (start: number, end: number) =>
-    `Trimmed ${(start / 1000).toFixed(1)}s at the start and ${(end / 1000).toFixed(1)}s at the end.`,
+  silenceNothing: "No silence found at the clip edges.",
+  silenceTrimmed: (totalMs: number, clips: number) =>
+    `Trimmed ${(totalMs / 1000).toFixed(1)}s of silence in ${clips} clip${clips === 1 ? "" : "s"}.`,
 
   // actions
   renderVideo: "🎬 Render video",
@@ -216,6 +216,17 @@ const en = {
   batchPreviewClean: "Clean version",
   batchClips: (n: number) => `${n} clips`,
   batchEmpty: "No archives yet. Drop ZIPs above or scan a folder.",
+  batchOpenTimeline: "Timeline",
+
+  // iterations (hooks)
+  iterSection: "Iterations (hooks)",
+  iterAdd: "➕ Add iteration",
+  iterHint:
+    "Click clips on the timeline in the order they should be duplicated at the start of the video. Captions, music and the disclaimer follow automatically.",
+  iterRender: (n: number) => `🎬 Render iteration (${n})`,
+  iterCancel: "Cancel",
+  iterEmpty: "Each iteration duplicates the picked clips as a hook at the start and renders a separate file into the video folder.",
+  iterDeleteConfirm: "Remove this iteration from the list? The rendered file is kept.",
 
   // preset editor
   presetManage: "Presets",
@@ -224,7 +235,7 @@ const en = {
   presetDeleteConfirm: "Delete this preset?",
   presetName: "Preset name",
   presetCaptions: "Captions (auto-transcribe)",
-  presetTrimSilence: "Trim silence at the start and end (from word timings; endcard is kept)",
+  presetTrimSilence: "Trim silence at the edges of every clip (from word timings; clips without speech are kept)",
   presetStyle: "Caption style",
   presetDisclaimer: "Disclaimer text",
   presetDisclaimerHint: "Small text shown over the whole video. Leave empty to disable.",
@@ -235,10 +246,14 @@ const en = {
   presetEndcardNone: "No endcard",
   presetEndcardUpload: "+ Upload endcard (image or video)",
   presetEndcardSeconds: "Image endcard duration, s",
-  presetCleanCopy: "Save clean copy (montage + endcard only) to “clean” subfolder",
+  presetCleanCopy: "Save clean copy (montage + endcard only) next to the final file in the video folder",
   presetSizeLimit: "Limit file size, MB (0 = off)",
   presetSave: "Save preset",
   presetLanguage: "Speech language",
+  presetPreviewWords:
+    "This is how your captions will look on the finished video looks great right",
+  presetPreviewHint: "Drag on the preview to move the captions up or down.",
+  presetStyleSection: "Captions: style and position",
 
   // style names
   styleNames: {} as Record<string, string>,
@@ -357,11 +372,11 @@ const uk: Dict = {
   frameSelectHint: "Клікни кліп на таймлайні, щоб зумити / рухати кадр.",
 
   deleteSilence: "✂ Прибрати тишу",
-  deleteSilenceTitle: "Обрізати тишу на початку та в кінці за таймінгами розпізнавання",
+  deleteSilenceTitle: "Обрізати тишу по краях кожного кліпа за таймінгами розпізнавання",
   silenceNeedWords: "Спершу розпізнай мову — тиша визначається за таймінгами слів.",
-  silenceNothing: "Тиші по краях не знайдено.",
-  silenceTrimmed: (start: number, end: number) =>
-    `Обрізано ${(start / 1000).toFixed(1)}с на початку і ${(end / 1000).toFixed(1)}с в кінці.`,
+  silenceNothing: "Тиші по краях кліпів не знайдено.",
+  silenceTrimmed: (totalMs: number, clips: number) =>
+    `Обрізано ${(totalMs / 1000).toFixed(1)}с тиші у ${clips} кліп${clips === 1 ? "і" : "ах"}.`,
 
   renderVideo: "🎬 Рендер відео",
   rendering: "Рендеримо…",
@@ -441,6 +456,16 @@ const uk: Dict = {
   batchPreviewClean: "Чиста версія",
   batchClips: (n: number) => `${n} кліпів`,
   batchEmpty: "Архівів поки немає. Кинь ZIP вище або проскануй папку.",
+  batchOpenTimeline: "Таймлайн",
+
+  iterSection: "Ітерації (хуки)",
+  iterAdd: "➕ Додати ітерацію",
+  iterHint:
+    "Клікай кліпи на таймлайні в тому порядку, в якому вони мають дублюватися на початку відео. Субтитри, музика та дисклеймер підтягнуться самі.",
+  iterRender: (n: number) => `🎬 Рендер ітерації (${n})`,
+  iterCancel: "Скасувати",
+  iterEmpty: "Кожна ітерація дублює обрані кліпи як хук на початку і рендерить окремий файл у папку відео.",
+  iterDeleteConfirm: "Прибрати цю ітерацію зі списку? Готовий файл залишиться.",
 
   presetManage: "Пресети",
   presetNew: "+ Новий пресет",
@@ -448,7 +473,7 @@ const uk: Dict = {
   presetDeleteConfirm: "Видалити цей пресет?",
   presetName: "Назва пресета",
   presetCaptions: "Субтитри (авторозпізнавання)",
-  presetTrimSilence: "Обрізати тишу на початку та в кінці (за таймінгами слів; ендкард не чіпаємо)",
+  presetTrimSilence: "Обрізати тишу по краях кожного кліпа (за таймінгами слів; кліпи без мовлення не чіпаємо)",
   presetStyle: "Стиль субтитрів",
   presetDisclaimer: "Текст дисклеймера",
   presetDisclaimerHint: "Дрібний текст поверх усього відео. Залиш порожнім, щоб вимкнути.",
@@ -459,10 +484,14 @@ const uk: Dict = {
   presetEndcardNone: "Без ендкарда",
   presetEndcardUpload: "+ Завантажити ендкард (картинка або відео)",
   presetEndcardSeconds: "Тривалість ендкарда-картинки, с",
-  presetCleanCopy: "Зберігати чистий дубль (лише монтаж + ендкард) у підпапку «clean»",
+  presetCleanCopy: "Зберігати чистий дубль (лише монтаж + ендкард) поруч із фіналом у папці відео",
   presetSizeLimit: "Ліміт розміру файлу, МБ (0 = вимкнено)",
   presetSave: "Зберегти пресет",
   presetLanguage: "Мова мовлення",
+  presetPreviewWords:
+    "Ось так виглядатимуть ваші субтитри на готовому відео виглядає круто правда ж",
+  presetPreviewHint: "Тягни по превью, щоб посунути субтитри вгору чи вниз.",
+  presetStyleSection: "Субтитри: стиль і позиція",
 
   styleNames: {
     classic: "Класика",

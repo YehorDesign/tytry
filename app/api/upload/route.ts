@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rmFileSync } from "@/lib/rmrf";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -40,7 +41,7 @@ async function saveAsClip(file: File): Promise<TimelineClip> {
       hasAudio: meta.hasAudio,
     };
   } catch (err) {
-    fs.rmSync(filePath, { force: true });
+    rmFileSync(filePath);
     throw err;
   }
 }
@@ -166,7 +167,7 @@ export async function POST(req: NextRequest) {
       saveProject(project);
       created.push(project);
     } catch (err) {
-      fs.rmSync(filePath, { force: true });
+      rmFileSync(filePath);
       errors.push({
         name: file.name,
         error: err instanceof Error ? err.message : String(err),

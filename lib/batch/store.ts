@@ -3,6 +3,7 @@
 // внезапное выключение не оставило битый файл.
 import fs from "node:fs";
 import path from "node:path";
+import { rmFileSync, rmrf } from "../rmrf";
 import { WORKSPACE } from "../store";
 import type { Batch, BatchPreset, Endcard } from "./types";
 
@@ -64,7 +65,7 @@ export function addEndcard(card: Endcard) {
 export function deleteEndcard(id: string) {
   const cards = listEndcards();
   const card = cards.find((c) => c.id === id);
-  if (card) fs.rmSync(path.join(ENDCARDS_DIR, card.fileName), { force: true });
+  if (card) rmFileSync(path.join(ENDCARDS_DIR, card.fileName));
   writeJsonAtomic(ENDCARDS_INDEX, cards.filter((c) => c.id !== id));
 }
 
@@ -112,6 +113,6 @@ export function listBatches(): Batch[] {
 }
 
 /** Удаляет запись батча и рабочие файлы. Готовые видео в папке пользователя не трогает. */
-export function deleteBatch(id: string) {
-  fs.rmSync(batchDir(id), { recursive: true, force: true });
+export async function deleteBatch(id: string) {
+  await rmrf(batchDir(id));
 }
