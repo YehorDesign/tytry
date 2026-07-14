@@ -4,6 +4,8 @@ const en = {
   // topbar
   addVideos: "+ Add videos",
   uploading: "Uploading…",
+  uploadFailed: (list: string) =>
+    `Upload failed:\n\n${list}\n\nIf this is a fresh install on macOS, run in Terminal:\nxattr -cr /Applications/TYTRY.app\nthen fully quit (Cmd+Q) and reopen the app.`,
   renderAll: "⚡ Render all",
   settingsTitle: "Settings",
   speechLanguage: "Speech language",
@@ -320,6 +322,8 @@ export type Dict = typeof en;
 const uk: Dict = {
   addVideos: "+ Додати відео",
   uploading: "Завантаження…",
+  uploadFailed: (list: string) =>
+    `Не вдалося завантажити:\n\n${list}\n\nЯкщо це свіже встановлення на macOS — виконай у Терміналі:\nxattr -cr /Applications/TYTRY.app\nпотім повністю закрий (Cmd+Q) і відкрий застосунок знову.`,
   renderAll: "⚡ Рендер усіх",
   settingsTitle: "Налаштування",
   speechLanguage: "Мова мовлення",

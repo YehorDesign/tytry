@@ -1355,6 +1355,7 @@ export default function Home() {
       setUploading(`0/${list.length}`);
       try {
         const createdAll: Project[] = [];
+        const failed: string[] = [];
         for (let i = 0; i < list.length; i += BATCH) {
           const batch = list.slice(i, i + BATCH);
           const formData = new FormData();
@@ -1365,17 +1366,24 @@ export default function Home() {
               created: Project[];
               errors?: { name: string; error: string }[];
             };
-            if (data.errors?.length) console.warn("Upload errors:", data.errors);
+            if (data.errors?.length) {
+              console.warn("Upload errors:", data.errors);
+              failed.push(...data.errors.map((e) => `${e.name}: ${e.error}`));
+            }
             createdAll.push(...data.created);
             transcribeQueueRef.current.push(...data.created);
             pumpTranscribe();
           } catch (err) {
             console.warn("Upload batch failed:", batch.map((f) => f.name), err);
+            failed.push(
+              ...batch.map((f) => `${f.name}: ${err instanceof Error ? err.message : String(err)}`)
+            );
           }
           setUploading(`${Math.min(i + BATCH, list.length)}/${list.length}`);
           if (i === 0 || (i / BATCH) % 5 === 0) await refresh();
         }
         await refresh();
+        if (failed.length) alert(t.uploadFailed(failed.join("\n")));
         if (createdAll.length > 0 && !selectedIdRef.current) {
           selectProject(createdAll[0]);
         }
@@ -1383,7 +1391,7 @@ export default function Home() {
         setUploading(null);
       }
     },
-    [language, refresh, selectProject, pumpTranscribe]
+    [language, refresh, selectProject, pumpTranscribe, t]
   );
 
   // ── новый монтаж: все выбранные файлы → один проект встык ──
@@ -1405,7 +1413,10 @@ export default function Home() {
           created?: Project[];
           errors?: { name: string; error: string }[];
         };
-        if (data.errors?.length) console.warn("Montage upload errors:", data.errors);
+        if (data.errors?.length) {
+          console.warn("Montage upload errors:", data.errors);
+          alert(t.uploadFailed(data.errors.map((e) => `${e.name}: ${e.error}`).join("\n")));
+        }
         await refresh();
         if (data.created?.[0]) {
           selectProject(data.created[0]);
@@ -1416,7 +1427,7 @@ export default function Home() {
         setUploading(null);
       }
     },
-    [refresh, selectProject, pumpTranscribe]
+    [refresh, selectProject, pumpTranscribe, t]
   );
 
   // ── добавить клипы (ендкард/дисклеймер) в текущий проект ──
@@ -1436,7 +1447,14 @@ export default function Home() {
           method: "POST",
           body: formData,
         });
-        const data = (await res.json()) as { project?: Project };
+        const data = (await res.json()) as {
+          project?: Project;
+          errors?: { name: string; error: string }[];
+        };
+        if (data.errors?.length) {
+          console.warn("Append clips errors:", data.errors);
+          alert(t.uploadFailed(data.errors.map((e) => `${e.name}: ${e.error}`).join("\n")));
+        }
         if (data.project) {
           setClips(data.project.clips ?? null);
         }
@@ -1445,7 +1463,7 @@ export default function Home() {
         setUploading(null);
       }
     },
-    [refresh]
+    [refresh, t]
   );
 
   const transcribe = async (id: string) => {
