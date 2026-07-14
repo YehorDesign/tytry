@@ -142,6 +142,73 @@ const clip = (id: string, durMs: number, inMs = 0): TimelineClip => ({
   eq(words[2].startMs, 7500, "w1 исходный сдвинут на длину хука");
   eq(variant.overlays![0].startMs, 9000, "оверлей сдвинут на длину хука");
   assert(variant.id !== project.id, "id варианта уникален (свой _flat.mp4)");
+
+  // ── перенос (ПКМ): клип уезжает в начало и пропадает со своего места ──
+  const moveIter: Iteration = {
+    id: "it2x",
+    num: 2,
+    clipIds: ["b"],
+    hookClips: [{ id: "b", move: true }],
+    status: "queued",
+    progress: 0,
+    createdAt: "",
+  };
+  const moved = buildIterationProject(project, moveIter);
+  const mClips = moved.clips!;
+  assert(mClips.length === 3, "перенос: клипов столько же (b уехал в начало)");
+  assert(
+    mClips[0].originalName === "b" && mClips[1].id === "a" && mClips[2].id === "c",
+    "перенос: порядок b, a, c"
+  );
+  eq(moved.video.durationMs, 10000, "перенос: общая длительность не изменилась");
+  const mWords = moved.words!;
+  assert(mWords.length === 3, "перенос: слова не дублируются");
+  eq(mWords[0].startMs, 500, "слово из b уехало в хук (4500-4000)");
+  eq(mWords[1].startMs, 3500, "w1: остался в a, сдвинут на хук (500+3000)");
+  // w3 в c: c сомкнулся на место b (7500-3000), затем +хук 3000
+  eq(mWords[2].startMs, 7500, "w3: сомкнулся за вырезом b и сдвинут на хук");
+  // оверлей на 2000 (в клипе a, до выреза) → +3000 хука
+  eq(moved.overlays![0].startMs, 5000, "оверлей: до выреза, сдвинут только на хук");
+
+  // ── микс: a дублем + b переносом ──
+  const mixIter: Iteration = {
+    id: "it3x",
+    num: 3,
+    clipIds: ["a", "b"],
+    hookClips: [{ id: "a" }, { id: "b", move: true }],
+    status: "queued",
+    progress: 0,
+    createdAt: "",
+  };
+  const mixed = buildIterationProject(project, mixIter);
+  assert(mixed.clips!.length === 4, "микс: хук(a,b) + база(a,c)");
+  eq(mixed.video.durationMs, 14000, "микс: 7000 хук + 7000 база");
+  assert(mixed.words!.length === 4, "микс: w1+w2 в хуке, w1+w3 в базе (w2 без дубля)");
+
+  // ── музыка: слова из трека якорятся к музыке, а не к клипам ──
+  const projectM: Project = {
+    ...project,
+    music: { trackId: "m", fileName: "m.mp3", name: "m", volume: 0.3, offsetMs: 1000 },
+    words: [
+      ...project.words!,
+      { id: "mw", text: "ла-ла", startMs: 1500, endMs: 2000, fromMusic: true },
+    ],
+  };
+  const iterM: Iteration = {
+    id: "it4x",
+    num: 4,
+    clipIds: ["a"],
+    hookClips: [{ id: "a" }],
+    musicOffsetMs: 2000, // свой сдвиг у итерации
+    status: "queued",
+    progress: 0,
+    createdAt: "",
+  };
+  const vM = buildIterationProject(projectM, iterM);
+  const musicWords = vM.words!.filter((w) => w.fromMusic);
+  assert(musicWords.length === 1, "музыкальное слово не дублируется в хук");
+  eq(musicWords[0].startMs, 2500, "музыкальное слово переякорено: 1500-1000+2000");
+  eq(vM.music!.offsetMs!, 2000, "у варианта сдвиг музыки из итерации");
 }
 
 if (failed > 0) {

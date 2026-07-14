@@ -83,6 +83,7 @@ export default function BatchPage() {
   const [editPreset, setEditPreset] = useState<Partial<BatchPreset> | null>(null);
   const [savingPreset, setSavingPreset] = useState(false);
   const endcardInputRef = useRef<HTMLInputElement>(null);
+  const musicInputRef = useRef<HTMLInputElement>(null);
 
   // предпросмотр
   const [preview, setPreview] = useState<{ itemId: string; kind: "final" | "clean" } | null>(null);
@@ -230,6 +231,7 @@ export default function BatchPage() {
         name: "",
         language: "auto",
         captions: true,
+        captionsFromMusic: false,
         trimSilence: false,
         styleId: "hormozi",
         overrides: { fontFamily: "Gilroy" },
@@ -270,6 +272,20 @@ export default function BatchPage() {
     const res = await fetch(`/api/presets?id=${id}`, { method: "DELETE" });
     const data = await res.json();
     setPresets(data.presets ?? []);
+  };
+
+  const uploadMusicTracks = async (files: File[]) => {
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    const res = await fetch("/api/music", { method: "POST", body: form });
+    const data = await res.json();
+    if (res.ok) {
+      setMusicTracks(data.tracks ?? []);
+      // сразу выбираем первый загруженный трек в пресете
+      if (data.created?.[0]) {
+        setEditPreset((p) => (p ? { ...p, musicTrackId: data.created[0].id } : p));
+      }
+    }
   };
 
   const uploadEndcard = async (file: File) => {
@@ -794,6 +810,35 @@ export default function BatchPage() {
                   ))}
                 </select>
               </div>
+              {editPreset.musicTrackId && editPreset.captions !== false && (
+                <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={editPreset.captionsFromMusic ?? false}
+                    onChange={(e) =>
+                      setEditPreset({ ...editPreset, captionsFromMusic: e.target.checked })
+                    }
+                  />
+                  <span className="hint" style={{ whiteSpace: "normal" }}>
+                    {t.presetCaptionsFromMusic}
+                  </span>
+                </label>
+              )}
+              <button className="btn btn-sm" onClick={() => musicInputRef.current?.click()}>
+                {t.musicUpload}
+              </button>
+              <input
+                ref={musicInputRef}
+                type="file"
+                accept="audio/*"
+                multiple
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  if (files.length > 0) uploadMusicTracks(files);
+                  e.target.value = "";
+                }}
+              />
               {editPreset.musicTrackId && (
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <span className="hint" style={{ flex: 1 }}>{t.presetMusicVolume}</span>

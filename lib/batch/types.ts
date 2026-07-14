@@ -10,6 +10,8 @@ export type BatchPreset = {
   language: string;
   /** делать ли субтитры (выкл = только монтаж/музыка/ендкард) */
   captions: boolean;
+  /** субтитры из ТЕКСТА МУЗЫКИ (lyrics трека), а не из речи в клипах */
+  captionsFromMusic?: boolean;
   /** обрезать тишину в начале и конце по таймингам слов (нужен Deepgram) */
   trimSilence: boolean;
   styleId: string;
@@ -97,6 +99,7 @@ export function defaultPreset(): Omit<BatchPreset, "id" | "name" | "createdAt"> 
   return {
     language: "auto",
     captions: true,
+    captionsFromMusic: false,
     trimSilence: false,
     styleId: "hormozi",
     overrides: { fontFamily: "Gilroy" },

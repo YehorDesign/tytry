@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { formatTimestamp, groupWordsIntoPages } from "@/lib/captions";
 import type { Dict } from "@/lib/i18n";
 import { OVERLAY_MIN_MS } from "@/lib/overlays";
-import { clipDurationMs, type CaptionPage, type ProjectMusic, type TextOverlay, type TimelineClip, type Word } from "@/lib/types";
+import { clipDurationMs, clipSpeed, type CaptionPage, type ProjectMusic, type TextOverlay, type TimelineClip, type Word } from "@/lib/types";
 
 const MIN_WORD_MS = 80; // минимальная длительность слова при растяжении
 const MIN_CLIP_MS = 200; // минимальная длительность клипа при триме
@@ -48,13 +48,16 @@ export const Timeline: React.FC<{
   selectedWordIds: Set<string>;
   clips: TimelineClip[] | null; // null — классический проект, трек клипов скрыт
   music: ProjectMusic | null;
+  /** длительность трека из библиотеки — для блока музыки и повторов лупа */
+  musicDurationMs?: number | null;
+  onMusicOffsetChange?: (offsetMs: number) => void;
   selectedClipId: string | null;
   overlays: TextOverlay[] | null;
   selectedOverlayId: string | null;
-  /** режим «итерация»: клики по клипам собирают хук (по порядку выбора) */
+  /** режим «итерация»: ЛКМ = дубль в хук, ПКМ = перенос в хук (по порядку) */
   hookMode?: boolean;
-  hookSelection?: string[];
-  onHookToggle?: (clipId: string) => void;
+  hookSelection?: { id: string; move?: boolean }[];
+  onHookToggle?: (clipId: string, move: boolean) => void;
   onWordsChange: (words: Word[]) => void;
   onSelectionChange: (ids: Set<string>) => void;
   onDeleteSelected: () => void;
@@ -72,6 +75,8 @@ export const Timeline: React.FC<{
   selectedWordIds,
   clips,
   music,
+  musicDurationMs,
+  onMusicOffsetChange,
   selectedClipId,
   overlays,
   selectedOverlayId,
@@ -244,9 +249,11 @@ export const Timeline: React.FC<{
   const applyClipDrag = (d: ClipDragState): TimelineClip[] => {
     const clip = d.clips[d.clipIndex];
     if (!clip) return d.clips;
+    // курсор двигается по таймлайну, а трим — по исходнику: пересчёт через скорость
+    const srcDelta = d.deltaMs * clipSpeed(clip);
     if (d.kind === "cleft") {
       const inMs = Math.min(
-        Math.max(clip.inMs + d.deltaMs, 0),
+        Math.max(clip.inMs + srcDelta, 0),
         clip.outMs - MIN_CLIP_MS
       );
       return d.clips.map((c, i) => (i === d.clipIndex ? { ...c, inMs } : c));
@@ -258,7 +265,7 @@ export const Timeline: React.FC<{
           ? clip.inMs + MAX_IMAGE_MS
           : clip.sourceDurationMs + MAX_FREEZE_MS;
       const outMs = Math.min(
-        Math.max(clip.outMs + d.deltaMs, clip.inMs + MIN_CLIP_MS),
+        Math.max(clip.outMs + srcDelta, clip.inMs + MIN_CLIP_MS),
         maxOut
       );
       return d.clips.map((c, i) => (i === d.clipIndex ? { ...c, outMs } : c));
@@ -291,6 +298,18 @@ export const Timeline: React.FC<{
     if (!clips) return;
     e.preventDefault();
     e.stopPropagation();
+    // ПКМ в режиме итерации: перенос клипа в хук (без перетаскивания)
+    if (e.button === 2) {
+      if (hookMode && onHookToggle) {
+        const id = clips[clipIndex]?.id;
+        if (id) {
+          onHookToggle(id, true);
+          onSeek(clipStarts[clipIndex] ?? 0);
+        }
+      }
+      return;
+    }
+    if (e.button !== 0) return;
     const initial: ClipDragState = {
       kind,
       clipIndex,
@@ -313,9 +332,9 @@ export const Timeline: React.FC<{
       setClipDrag(null);
       if (!initial.moved) {
         const id = initial.clips[clipIndex]?.id ?? null;
-        // режим итерации: клик добавляет/убирает клип из хука
+        // режим итерации: ЛКМ добавляет дубль в хук / убирает клип из хука
         if (hookMode && id && onHookToggle) {
-          onHookToggle(id);
+          onHookToggle(id, false);
           onSeek(clipStarts[clipIndex] ?? 0);
           return;
         }
@@ -422,6 +441,40 @@ export const Timeline: React.FC<{
 
   const visibleOverlays = overlayDrag ? applyOverlayDrag(overlayDrag) : overlays;
 
+  // ── музыка: сдвиг трека перетаскиванием ──
+  const [musicDrag, setMusicDrag] = useState<{ startX: number; deltaMs: number } | null>(
+    null
+  );
+  const musicOffset = (music?.offsetMs ?? 0) + (musicDrag?.deltaMs ?? 0);
+
+  const startMusicDrag = (e: React.PointerEvent) => {
+    if (!music || !onMusicOffsetChange) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const initial = { startX: e.clientX, deltaMs: 0 };
+    setMusicDrag(initial);
+    const trackDur = musicDurationMs ?? durationMs;
+    const clampOffset = (off: number) =>
+      Math.min(Math.max(off, -(trackDur - 500)), Math.max(durationMs - 500, 0));
+
+    const onMove = (ev: PointerEvent) => {
+      initial.deltaMs =
+        clampOffset((music.offsetMs ?? 0) + pxToMs(ev.clientX - initial.startX)) -
+        (music.offsetMs ?? 0);
+      setMusicDrag({ ...initial });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setMusicDrag(null);
+      if (Math.abs(initial.deltaMs) > 5) {
+        onMusicOffsetChange(Math.round((music.offsetMs ?? 0) + initial.deltaMs));
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
   const handleTrackClick = (e: React.MouseEvent) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -521,20 +574,30 @@ export const Timeline: React.FC<{
                         for (let k = 0; k < i; k++) acc += clipDurationMs(visibleClips[k]);
                         return acc;
                       })();
-                const hookIdx = hookMode ? (hookSelection ?? []).indexOf(clip.id) : -1;
+                const hookIdx = hookMode
+                  ? (hookSelection ?? []).findIndex((h) => h.id === clip.id)
+                  : -1;
+                const hookMove = hookIdx >= 0 && !!hookSelection?.[hookIdx]?.move;
                 return (
                   <div
                     key={clip.id}
-                    className={`clip-block ${isDragged ? "dragging" : ""} ${clip.kind === "image" ? "image" : ""} ${clip.id === selectedClipId ? "selected" : ""} ${hookMode ? "hookable" : ""} ${hookIdx >= 0 ? "hooked" : ""}`}
+                    className={`clip-block ${isDragged ? "dragging" : ""} ${clip.kind === "image" ? "image" : ""} ${clip.id === selectedClipId ? "selected" : ""} ${hookMode ? "hookable" : ""} ${hookIdx >= 0 ? "hooked" : ""} ${hookMove ? "hook-move" : ""}`}
                     style={{
                       left: msToPx(start),
                       width: Math.max(msToPx(clipDurationMs(clip)), 16),
                     }}
                     onPointerDown={(e) => startClipDrag(e, "cmove", i)}
                     onClick={(e) => e.stopPropagation()}
+                    onContextMenu={(e) => {
+                      if (hookMode) e.preventDefault();
+                    }}
                     title={`${clip.originalName} · ${formatTimestamp(clipDurationMs(clip))}`}
                   >
-                    {hookIdx >= 0 && <span className="hook-badge">{hookIdx + 1}</span>}
+                    {hookIdx >= 0 && (
+                      <span className={`hook-badge ${hookMove ? "move" : ""}`}>
+                        {hookMove ? `${hookIdx + 1}↰` : hookIdx + 1}
+                      </span>
+                    )}
                     <div
                       className="timeline-handle left"
                       onPointerDown={(e) => startClipDrag(e, "cleft", i)}
@@ -544,12 +607,19 @@ export const Timeline: React.FC<{
                       <div
                         className="clip-freeze"
                         style={{
-                          width: msToPx(clip.outMs - clip.sourceDurationMs),
+                          width: msToPx(
+                            (clip.outMs - clip.sourceDurationMs) / clipSpeed(clip)
+                          ),
                         }}
                       />
                     )}
                     <span className="clip-block-text">
                       {clip.kind === "image" ? "🖼 " : ""}
+                      {clipSpeed(clip) !== 1 && (
+                        <span className="clip-speed-badge">
+                          ×{clipSpeed(clip).toFixed(2).replace(/\.?0+$/, "")}{" "}
+                        </span>
+                      )}
                       {clip.originalName}
                     </span>
                     {clips && clips.length > 1 && (
@@ -643,19 +713,30 @@ export const Timeline: React.FC<{
             </div>
           )}
 
-          {/* ── полоса музыки ── */}
+          {/* ── полоса музыки: тянется влево/вправо (сдвиг трека) ── */}
           {music && (
             <div className="timeline-lane music-lane" style={{ top: musicTop, height: 20 }}>
-              <div
-                className="music-block"
-                style={{ left: 0, width: msToPx(durationMs) }}
-                onClick={(e) => e.stopPropagation()}
-                title={music.name}
-              >
-                <span className="clip-block-text">
-                  🎵 {music.name} · {Math.round(music.volume * 100)}%
-                </span>
-              </div>
+              {(() => {
+                const trackDur = Math.max(musicDurationMs ?? durationMs, 1000);
+                // трек играет один раз, без повторов
+                return (
+                  <>
+                    <div
+                      className={`music-block ${musicDrag ? "dragging" : ""}`}
+                      style={{ left: msToPx(musicOffset), width: Math.max(msToPx(trackDur), 24) }}
+                      onPointerDown={startMusicDrag}
+                      onClick={(e) => e.stopPropagation()}
+                      title={`${music.name} — ${t.musicDragTitle}`}
+                    >
+                      <span className="clip-block-text">
+                        🎵 {music.name} · {Math.round(music.volume * 100)}%
+                        {Math.round(musicOffset) !== 0 &&
+                          ` · ${musicOffset > 0 ? "+" : ""}${(musicOffset / 1000).toFixed(1)}s`}
+                      </span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 

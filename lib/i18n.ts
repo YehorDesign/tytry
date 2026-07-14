@@ -32,7 +32,7 @@ const en = {
 
   // stage
   dropTitle: "Drop videos here",
-  dropHint: "Batch upload supported: mp4, mov, webm, mkv.\nSpeech is transcribed automatically after upload.",
+  dropHint: "Batch upload supported: mp4, mov, webm, mkv.\nA .zip archive becomes a montage named after the archive.\nSpeech is transcribed automatically after upload.",
   chooseFiles: "Choose files",
 
   // tabs
@@ -218,13 +218,29 @@ const en = {
   batchEmpty: "No archives yet. Drop ZIPs above or scan a folder.",
   batchOpenTimeline: "Timeline",
 
+  // группы правой панели
+  groupCaptions: "Captions",
+  groupMontage: "Montage & frame",
+  groupOverlays: "Text over video",
+
+  // музыка: сдвиг и субтитры из трека
+  musicOffset: "Track offset",
+  musicOffsetHint:
+    "Drag the music block on the timeline to shift the track. Each iteration remembers the offset it was created with.",
+  musicDragTitle: "drag left/right to shift the track",
+  musicTranscribe: "🎙 Captions from music",
+  musicTranscribing: "Transcribing music…",
+
   // iterations (hooks)
   iterSection: "Iterations (hooks)",
   iterAdd: "➕ Add iteration",
   iterHint:
-    "Click clips on the timeline in the order they should be duplicated at the start of the video. Captions, music and the disclaimer follow automatically.",
-  iterRender: (n: number) => `🎬 Render iteration (${n})`,
+    "Click clips on the timeline in order: LEFT click duplicates the clip at the start (video continues unchanged), RIGHT click MOVES it to the start (it disappears from its place). Captions, music and the disclaimer follow automatically.",
+  iterRender: (n: number) => `➕ Add iteration (${n})`,
   iterCancel: "Cancel",
+  iterDraft: "draft",
+  iterRenderOne: "Render this iteration",
+  iterRenderDrafts: (n: number) => `🎬 Render iterations (${n})`,
   iterEmpty: "Each iteration duplicates the picked clips as a hook at the start and renders a separate file into the video folder.",
   iterDeleteConfirm: "Remove this iteration from the list? The rendered file is kept.",
 
@@ -242,6 +258,46 @@ const en = {
   presetMusic: "Music",
   presetMusicNone: "No music",
   presetMusicVolume: "Music volume",
+  presetCaptionsFromMusic: "Captions from music (song lyrics instead of speech in clips)",
+  clipSpeed: "Speed",
+  projPresetSection: "Preset",
+  projPresetChoose: "Choose a preset…",
+  projPresetApply: "Apply",
+  projPresetHint:
+    "Applies caption style, disclaimer, music and endcard from a batch preset to this project. Presets are managed on the Batch page.",
+  iterPresetSave: "Save variations as preset",
+  iterPresetFrom: "Create variations from preset:",
+  iterPresetEmpty: "No saved variation presets yet",
+  iterPresetNamePrompt: "Variation preset name:",
+  iterPresetNothing: "These iterations reference deleted clips — nothing to save",
+  iterPresetDelete: "Delete preset",
+  iterPresetDeleteConfirm: "Delete this variation preset?",
+  iterPresetTargets: (n: number) => `${n} selected videos`,
+  iterPresetApplied: (created: number, videos: number, skipped: number) =>
+    `Added ${created} variation draft${created === 1 ? "" : "s"} across ${videos} video${videos === 1 ? "" : "s"}` +
+    (skipped > 0 ? `, skipped ${skipped} (not enough scenes)` : "") +
+    ". Render via “Render all” or the iterations button.",
+  mpSave: "Save montage as preset",
+  mpFrom: "Apply montage from preset:",
+  mpEmpty: "No saved montage presets yet",
+  mpNamePrompt: "Montage preset name:",
+  mpNothing: "No numbered scenes in this project (clip names need numbers)",
+  mpDeleteConfirm: "Delete this montage preset?",
+  mpScenes: (n: number) => `${n} sc.`,
+  mpApplied: (applied: number, skippedProjects: number, skippedScenes: number) =>
+    `Montage applied to ${applied} video${applied === 1 ? "" : "s"}` +
+    (skippedProjects > 0 ? `, ${skippedProjects} skipped (no matching scenes)` : "") +
+    (skippedScenes > 0 ? `, ${skippedScenes} scene refs dropped` : "") +
+    ".",
+  railArchive: "Archive",
+  folderMoveTo: "Move to",
+  folderNew: "New folder…",
+  folderNamePrompt: "Folder name:",
+  folderRemove: "Remove from folder",
+  folderRename: "Rename folder",
+  folderUngroup: "Ungroup folder",
+  archiveAdd: "Archive",
+  archiveRemove: "Unarchive",
   presetEndcard: "Endcard",
   presetEndcardNone: "No endcard",
   presetEndcardUpload: "+ Upload endcard (image or video)",
@@ -289,7 +345,7 @@ const uk: Dict = {
   renderPct: (pct: number) => `Рендер ${pct}%`,
 
   dropTitle: "Перетягни відео сюди",
-  dropHint: "Можна пачкою: mp4, mov, webm, mkv.\nПісля завантаження мова розпізнається автоматично.",
+  dropHint: "Можна пачкою: mp4, mov, webm, mkv.\nZip-архів стане монтажем з іменем архіву.\nПісля завантаження мова розпізнається автоматично.",
   chooseFiles: "Обрати файли",
 
   tabStyle: "Стиль",
@@ -458,12 +514,26 @@ const uk: Dict = {
   batchEmpty: "Архівів поки немає. Кинь ZIP вище або проскануй папку.",
   batchOpenTimeline: "Таймлайн",
 
+  groupCaptions: "Субтитри",
+  groupMontage: "Монтаж і кадр",
+  groupOverlays: "Текст поверх відео",
+
+  musicOffset: "Зсув треку",
+  musicOffsetHint:
+    "Тягни блок музики на таймлайні, щоб зсунути трек. Кожна ітерація запам'ятовує зсув, з яким її створили.",
+  musicDragTitle: "тягни вліво/вправо, щоб зсунути трек",
+  musicTranscribe: "🎙 Субтитри з музики",
+  musicTranscribing: "Розпізнаємо музику…",
+
   iterSection: "Ітерації (хуки)",
   iterAdd: "➕ Додати ітерацію",
   iterHint:
-    "Клікай кліпи на таймлайні в тому порядку, в якому вони мають дублюватися на початку відео. Субтитри, музика та дисклеймер підтягнуться самі.",
-  iterRender: (n: number) => `🎬 Рендер ітерації (${n})`,
+    "Клікай кліпи на таймлайні по порядку: ЛІВИЙ клік — кліп дублюється на початок (відео далі без змін), ПРАВИЙ — кліп ПЕРЕНОСИТЬСЯ на початок і зникає зі свого місця. Субтитри, музика та дисклеймер підтягнуться самі.",
+  iterRender: (n: number) => `➕ Додати ітерацію (${n})`,
   iterCancel: "Скасувати",
+  iterDraft: "чернетка",
+  iterRenderOne: "Рендерити цю ітерацію",
+  iterRenderDrafts: (n: number) => `🎬 Рендер ітерацій (${n})`,
   iterEmpty: "Кожна ітерація дублює обрані кліпи як хук на початку і рендерить окремий файл у папку відео.",
   iterDeleteConfirm: "Прибрати цю ітерацію зі списку? Готовий файл залишиться.",
 
@@ -480,6 +550,46 @@ const uk: Dict = {
   presetMusic: "Музика",
   presetMusicNone: "Без музики",
   presetMusicVolume: "Гучність музики",
+  presetCaptionsFromMusic: "Субтитри з музики (текст пісні замість мови у кліпах)",
+  clipSpeed: "Швидкість",
+  projPresetSection: "Пресет",
+  projPresetChoose: "Обрати пресет…",
+  projPresetApply: "Застосувати",
+  projPresetHint:
+    "Застосовує стиль субтитрів, дисклеймер, музику та ендкард із батч-пресета до цього проєкту. Пресети редагуються на сторінці Батч.",
+  iterPresetSave: "Зберегти варіації як пресет",
+  iterPresetFrom: "Створити варіації з пресета:",
+  iterPresetEmpty: "Збережених пресетів варіацій поки немає",
+  iterPresetNamePrompt: "Назва пресета варіацій:",
+  iterPresetNothing: "Ці ітерації посилаються на видалені кліпи — нема що зберігати",
+  iterPresetDelete: "Видалити пресет",
+  iterPresetDeleteConfirm: "Видалити цей пресет варіацій?",
+  iterPresetTargets: (n: number) => `Вибрано відео: ${n}`,
+  iterPresetApplied: (created: number, videos: number, skipped: number) =>
+    `Додано чернеток варіацій: ${created} (відео: ${videos})` +
+    (skipped > 0 ? `, пропущено: ${skipped} (не вистачає сцен)` : "") +
+    ". Рендер — кнопкою «Рендер усіх» або «Рендер ітерацій».",
+  mpSave: "Зберегти монтаж як пресет",
+  mpFrom: "Застосувати монтаж з пресета:",
+  mpEmpty: "Збережених пресетів монтажу поки немає",
+  mpNamePrompt: "Назва пресета монтажу:",
+  mpNothing: "У проєкті немає нумерованих сцен (у назвах кліпів мають бути числа)",
+  mpDeleteConfirm: "Видалити цей пресет монтажу?",
+  mpScenes: (n: number) => `${n} сц.`,
+  mpApplied: (applied: number, skippedProjects: number, skippedScenes: number) =>
+    `Монтаж застосовано: ${applied} відео` +
+    (skippedProjects > 0 ? `, пропущено відео: ${skippedProjects} (немає збігів сцен)` : "") +
+    (skippedScenes > 0 ? `, відкинуто сцен: ${skippedScenes}` : "") +
+    ".",
+  railArchive: "Архів",
+  folderMoveTo: "У папку",
+  folderNew: "Нова папка…",
+  folderNamePrompt: "Назва папки:",
+  folderRemove: "Прибрати з папки",
+  folderRename: "Перейменувати папку",
+  folderUngroup: "Розформувати папку",
+  archiveAdd: "В архів",
+  archiveRemove: "З архіву",
   presetEndcard: "Ендкард",
   presetEndcardNone: "Без ендкарда",
   presetEndcardUpload: "+ Завантажити ендкард (картинка або відео)",

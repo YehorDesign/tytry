@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { enqueueIteration } from "@/lib/jobs";
 import { getClips } from "@/lib/montage";
 import { loadProject, updateProject } from "@/lib/store";
-import type { Iteration } from "@/lib/types";
+import type { HookClip, Iteration } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,29 +18,59 @@ export async function POST(req: NextRequest, { params }: Params) {
   const project = loadProject(id);
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const body = (await req.json()) as { clipIds?: string[] };
-  const clipIds = (body.clipIds ?? []).filter((c) => typeof c === "string");
-  if (clipIds.length === 0) {
+  const body = (await req.json()) as {
+    clipIds?: string[];
+    clips?: HookClip[];
+    /** снимок сдвига музыки для этой итерации, мс */
+    musicOffsetMs?: number;
+    /** false = создать черновик без запуска рендера */
+    render?: boolean;
+    /** запустить рендер УЖЕ существующей итерации (черновика) */
+    renderIterationId?: string;
+  };
+
+  // ── запуск рендера существующего черновика ──
+  if (body.renderIterationId) {
+    const it = project.iterations?.find((i) => i.id === body.renderIterationId);
+    if (!it) return NextResponse.json({ error: "Iteration not found" }, { status: 404 });
+    const host = req.headers.get("host") ?? "127.0.0.1:3000";
+    enqueueIteration(id, it.id, `http://${host}`);
+    return NextResponse.json({ project: loadProject(id), iteration: it });
+  }
+
+  // новый формат {clips: [{id, move}]}; legacy {clipIds} = все дубли
+  const hookClips: HookClip[] = (
+    body.clips ?? (body.clipIds ?? []).map((id) => ({ id }))
+  ).filter((h) => h && typeof h.id === "string");
+  if (hookClips.length === 0) {
     return NextResponse.json({ error: "No clips selected" }, { status: 400 });
   }
   const known = new Set(getClips(project).map((c) => c.id));
-  if (clipIds.some((c) => !known.has(c))) {
+  if (hookClips.some((h) => !known.has(h.id))) {
     return NextResponse.json({ error: "Unknown clip id" }, { status: 400 });
   }
 
+  // по умолчанию рендер стартует сразу (пресеты вариаций, старые клиенты);
+  // render:false = черновик, рендерится позже кнопкой
+  const render = body.render !== false;
   const existing = project.iterations ?? [];
   const iteration: Iteration = {
     id: crypto.randomBytes(5).toString("hex"),
     num: existing.reduce((m, i) => Math.max(m, i.num), 0) + 1,
-    clipIds,
-    status: "queued",
+    clipIds: hookClips.map((h) => h.id),
+    hookClips,
+    musicOffsetMs:
+      typeof body.musicOffsetMs === "number" ? Math.round(body.musicOffsetMs) : undefined,
+    status: render ? "queued" : "draft",
     progress: 0,
     createdAt: new Date().toISOString(),
   };
   const updated = updateProject(id, { iterations: [...existing, iteration] });
 
-  const host = req.headers.get("host") ?? "127.0.0.1:3000";
-  enqueueIteration(id, iteration.id, `http://${host}`);
+  if (render) {
+    const host = req.headers.get("host") ?? "127.0.0.1:3000";
+    enqueueIteration(id, iteration.id, `http://${host}`);
+  }
   return NextResponse.json({ project: updated, iteration });
 }
 

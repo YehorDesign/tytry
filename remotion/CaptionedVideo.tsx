@@ -45,6 +45,7 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
   clips,
   musicSrc,
   musicVolume,
+  musicOffsetMs,
   disclaimer,
   overlays,
 }) => {
@@ -76,13 +77,22 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
       freezeAt: number | null;
     })[] = [];
     clips.forEach((c, i) => {
-      const totalFrames = Math.max(Math.round(((c.outMs - c.inMs) / 1000) * fps), 1);
+      const rawSpeed = c.speed ?? 1;
+      const speed =
+        Number.isFinite(rawSpeed) && rawSpeed > 0
+          ? Math.min(Math.max(rawSpeed, 0.25), 4)
+          : 1;
+      // длительности на таймлайне ужаты/растянуты скоростью — как в ffmpeg-склейке
+      const totalFrames = Math.max(
+        Math.round(((c.outMs - c.inMs) / 1000 / speed) * fps),
+        1
+      );
       const videoEndMs =
         c.kind === "video" && c.sourceDurationMs
           ? Math.min(c.outMs, c.sourceDurationMs)
           : c.outMs;
       const videoFrames = Math.min(
-        Math.max(Math.round(((videoEndMs - c.inMs) / 1000) * fps), 1),
+        Math.max(Math.round(((videoEndMs - c.inMs) / 1000 / speed) * fps), 1),
         totalFrames
       );
       items.push({ ...c, key: `${i}v`, fromFrame, durFrames: videoFrames, freezeAt: null });
@@ -115,6 +125,11 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
                 ? `translate(${(c.panX ?? 0) * 100}%, ${(c.panY ?? 0) * 100}%) scale(${c.zoom ?? 1})`
                 : undefined,
           };
+          const rawRate = c.speed ?? 1;
+          const rate =
+            Number.isFinite(rawRate) && rawRate > 0
+              ? Math.min(Math.max(rawRate, 0.25), 4)
+              : 1;
           const media =
             c.kind === "image" ? (
               <Img src={c.src} style={clipStyle} />
@@ -122,6 +137,7 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
               <OffthreadVideo
                 src={c.src}
                 startFrom={Math.round((c.inMs / 1000) * fps)}
+                playbackRate={rate}
                 muted={c.freezeAt !== null}
                 style={clipStyle}
               />
@@ -138,7 +154,20 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
           style={{ width: "100%", height: "100%", objectFit: "contain" }}
         />
       )}
-      {musicSrc ? <Audio src={musicSrc} volume={musicVolume ?? 0.3} loop /> : null}
+      {musicSrc ? (
+        // сдвиг музыки: >0 — трек стартует позже, <0 — заходим внутрь трека
+        (musicOffsetMs ?? 0) > 0 ? (
+          <Sequence from={Math.round(((musicOffsetMs ?? 0) / 1000) * fps)}>
+            <Audio src={musicSrc} volume={musicVolume ?? 0.3} />
+          </Sequence>
+        ) : (
+          <Audio
+            src={musicSrc}
+            volume={musicVolume ?? 0.3}
+            startFrom={Math.round((-(musicOffsetMs ?? 0) / 1000) * fps)}
+          />
+        )
+      ) : null}
       {/* дисклеймер: мелкий текст на всю длительность */}
       {disclaimer?.text?.trim() ? (
         <AbsoluteFill style={{ pointerEvents: "none" }}>

@@ -11,6 +11,7 @@ const FONTS_DIR = path.join(APP_ROOT, "fonts");
 // вес → файл; должен совпадать с наборами в remotion/fonts.ts
 const BUILTIN: Record<string, { weights: number[]; italicWeights?: number[] }> = {
   Gilroy: { weights: [500] },
+  DynaPuff: { weights: [400] },
   Montserrat: { weights: [500, 600, 700, 800, 900] },
   Unbounded: { weights: [700, 900] },
   Oswald: { weights: [600, 700] },

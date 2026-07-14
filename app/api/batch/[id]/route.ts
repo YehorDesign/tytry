@@ -12,6 +12,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const { id } = await params;
   const batch = loadBatch(id);
   if (!batch) return NextResponse.json({ error: "Batch not found" }, { status: 404 });
+  // пинок воркеру: после перезапуска сервера прерванные элементы
+  // продолжаются сами, пока страница батча открыта (звать повторно безопасно)
+  startBatch(id);
   return NextResponse.json({ batch: presentBatch(batch) });
 }
 

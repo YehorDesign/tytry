@@ -106,7 +106,26 @@ export type FlattenClip = {
   zoom?: number;
   panX?: number;
   panY?: number;
+  /** скорость воспроизведения (1 = обычная); длительность на таймлайне = трим/скорость */
+  speed?: number;
 };
+
+/** atempo принимает 0.5..2 — для скоростей за пределами строим цепочку. */
+function atempoChain(speed: number): string {
+  if (Math.abs(speed - 1) < 1e-6) return "";
+  let s = speed;
+  const parts: string[] = [];
+  while (s > 2) {
+    parts.push("atempo=2.0");
+    s /= 2;
+  }
+  while (s < 0.5) {
+    parts.push("atempo=0.5");
+    s /= 0.5;
+  }
+  parts.push(`atempo=${s.toFixed(4)}`);
+  return "," + parts.join(",");
+}
 
 type FilterGraph = {
   args: string[]; // входы (-i и опции перед ними)
@@ -131,7 +150,13 @@ function buildConcatGraph(
   const pairs: string[] = [];
 
   clips.forEach((clip, i) => {
-    const durSec = Math.max(clip.outMs - clip.inMs, 1) / 1000;
+    const rawSpeed = clip.speed ?? 1;
+    const speed =
+      Number.isFinite(rawSpeed) && rawSpeed > 0
+        ? Math.min(Math.max(rawSpeed, 0.25), 4)
+        : 1;
+    // длительность на таймлайне: трим, ужатый/растянутый скоростью
+    const durSec = Math.max(clip.outMs - clip.inMs, 1) / 1000 / speed;
     if (clip.kind === "image") {
       args.push("-loop", "1", "-t", durSec.toFixed(3), "-i", clip.path);
     } else {
@@ -151,7 +176,9 @@ function buildConcatGraph(
           : `trim=start=${(clip.inMs / 1000).toFixed(3)}:end=${(videoEndMs / 1000).toFixed(3)},setpts=PTS-STARTPTS,` +
             (freezeSec > 0.001
               ? `tpad=stop_mode=clone:stop_duration=${freezeSec.toFixed(3)},`
-              : "");
+              : "") +
+            // скорость: сжимаем/растягиваем PTS (fps ниже пересемплирует кадры)
+            (speed !== 1 ? `setpts=PTS/${speed.toFixed(4)},` : "");
       // вписываем в канвас с учётом зума и сдвига: scale → overlay на чёрный фон
       // (края за пределами канваса обрезаются overlay-ем — это и есть «кроп»)
       const fit = Math.min(width / clip.width, height / clip.height);
@@ -172,6 +199,8 @@ function buildConcatGraph(
         `[${i}:a]atrim=start=${(clip.inMs / 1000).toFixed(3)}:end=${(videoEndMs / 1000).toFixed(3)},` +
           `asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo` +
           (freezeSec > 0.001 ? `,apad=pad_dur=${freezeSec.toFixed(3)}` : "") +
+          // темп звука меняется вместе со скоростью, без смены высоты тона
+          atempoChain(speed) +
           `[a${i}]`
       );
     } else {
@@ -192,6 +221,17 @@ function buildConcatGraph(
 }
 
 /**
+ * Цепочка фильтров сдвига музыки: >0 — трек стартует позже (adelay),
+ * <0 — начало трека отрезается (atrim внутрь трека).
+ */
+function musicOffsetFilter(offsetMs: number): string {
+  const off = Math.round(offsetMs);
+  if (off > 0) return `adelay=${off}|${off},`;
+  if (off < 0) return `atrim=start=${(-off / 1000).toFixed(3)},asetpts=PTS-STARTPTS,`;
+  return "";
+}
+
+/**
  * Склеивает таймлайн монтажа (клипы встык + музыка) в промежуточный mp4.
  * Дальше по нему работает обычный рендер субтитров.
  */
@@ -202,6 +242,7 @@ export async function flattenTimeline(opts: {
   fps: number;
   musicPath?: string | null;
   musicVolume?: number;
+  musicOffsetMs?: number;
   outPath: string;
 }) {
   const { clips, width, height, fps, musicPath, outPath } = opts;
@@ -211,9 +252,12 @@ export async function flattenTimeline(opts: {
 
   if (musicPath) {
     const musicIdx = clips.length;
-    args.push("-stream_loop", "-1", "-i", musicPath);
+    // трек играет один раз: закончился раньше видео — дальше тишина
+    args.push("-i", musicPath);
     const vol = Math.min(Math.max(opts.musicVolume ?? 0.3, 0), 1);
-    graph.filters.push(`[${musicIdx}:a]volume=${vol.toFixed(3)}[am]`);
+    graph.filters.push(
+      `[${musicIdx}:a]${musicOffsetFilter(opts.musicOffsetMs ?? 0)}volume=${vol.toFixed(3)}[am]`
+    );
     graph.filters.push(
       `${graph.audioOut}[am]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]`
     );
@@ -268,13 +312,14 @@ export async function extractAudio(videoPath: string, outPath: string, maxDurati
 }
 
 /**
- * Подмешивает музыку (с лупом) к готовому видео. Видео копируется без
- * перекодирования — операция почти мгновенная.
+ * Подмешивает музыку к готовому видео (один проход трека, без лупа).
+ * Видео копируется без перекодирования — операция почти мгновенная.
  */
 export async function mixMusic(opts: {
   videoPath: string;
   musicPath: string;
   volume: number;
+  offsetMs?: number;
   outPath: string;
 }) {
   const vol = Math.min(Math.max(opts.volume, 0), 1);
@@ -283,9 +328,9 @@ export async function mixMusic(opts: {
     [
       "-y", "-hide_banner", "-loglevel", "error",
       "-i", opts.videoPath,
-      "-stream_loop", "-1", "-i", opts.musicPath,
+      "-i", opts.musicPath,
       "-filter_complex",
-      `[1:a]volume=${vol.toFixed(3)}[am];` +
+      `[1:a]${musicOffsetFilter(opts.offsetMs ?? 0)}volume=${vol.toFixed(3)}[am];` +
         `[0:a][am]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]`,
       "-map", "0:v",
       "-map", "[aout]",

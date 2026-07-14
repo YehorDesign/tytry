@@ -5,6 +5,12 @@ export type Word = {
   endMs: number;
   /** стиль отрезка: если задан, слова с этим стилем рисуются им вместо стиля проекта */
   style?: WordStyle | null;
+  /**
+   * слово распознано из МУЗЫКИ: якорится к треку, а не к клипам —
+   * двигается вместе со сдвигом музыки и не участвует в триме тишины,
+   * ремапе при правках клипов и хуках итераций
+   */
+  fromMusic?: boolean;
 };
 
 /** Пер-сегментный стиль: пресет + правки, привязанные к конкретным словам */
@@ -146,7 +152,15 @@ export type TimelineClip = {
   panX?: number;
   /** сдвиг кадра по вертикали, доля высоты канваса */
   panY?: number;
+  /** скорость воспроизведения: 1 = обычная, 2 = вдвое быстрее (короче), 0.5 = слоумо */
+  speed?: number;
 };
+
+/** Скорость клипа с защитой от мусора (0.25..4, по умолчанию 1). */
+export function clipSpeed(c: TimelineClip): number {
+  const s = c.speed ?? 1;
+  return Number.isFinite(s) && s > 0 ? Math.min(Math.max(s, 0.25), 4) : 1;
+}
 
 /** Дисклеймер: мелкий текст поверх всего видео на всю длительность */
 export type Disclaimer = {
@@ -178,6 +192,11 @@ export type ProjectMusic = {
   fileName: string; // имя файла в workspace/music
   name: string;
   volume: number; // 0..1
+  /**
+   * сдвиг трека относительно начала видео, мс: >0 — трек стартует позже,
+   * <0 — начало трека отрезается (заходим внутрь трека)
+   */
+  offsetMs?: number;
 };
 
 /** Трек в библиотеке музыки (workspace/music/library.json) */
@@ -197,18 +216,30 @@ export type ProjectBatchRef = {
   maxSizeMb: number;
 };
 
+/** Клип в хуке итерации: дубль (по умолчанию) или перенос в начало */
+export type HookClip = {
+  id: string;
+  /** true = клип ПЕРЕНОСИТСЯ в начало (из своего места исчезает) */
+  move?: boolean;
+};
+
 /**
- * Итерация: выбранные клипы дублируются в НАЧАЛО видео как хук (вместе с
- * их субтитрами), дальше видео идёт своим чередом. Каждая итерация — свой
- * рендер в папку видоса: <назва>_it<num>.mp4.
+ * Итерация: выбранные клипы идут в НАЧАЛО видео как хук (вместе с их
+ * субтитрами). Дубль — дальше видео без изменений; перенос — клип пропадает
+ * со своего места. Каждая итерация — свой рендер: <назва>_it<num>.mp4.
  */
 export type Iteration = {
   id: string;
   /** порядковый номер → имя файла */
   num: number;
-  /** id клипов проекта в порядке выбора */
+  /** id клипов проекта в порядке выбора (legacy: все — дубли) */
   clipIds: string[];
-  status: "queued" | "rendering" | "done" | "error";
+  /** клипы хука с режимом (приоритетнее clipIds) */
+  hookClips?: HookClip[];
+  /** свой сдвиг музыки этой итерации (снимок на момент создания), мс */
+  musicOffsetMs?: number;
+  /** draft = добавлена, но рендер ещё не запускали */
+  status: "draft" | "queued" | "rendering" | "done" | "error";
   progress: number; // 0..1
   /** абсолютный путь готового файла */
   file?: string;
@@ -239,15 +270,22 @@ export type Project = {
   overlays?: TextOverlay[] | null;
   renderFile?: string; // имя файла в workspace/renders
   renderProgress?: number;
+  /** корневая папка вывода, выбранная в «Рендер всех»: рендеры и итерации
+   *  идут в <outputRoot>/<имя проекта>/ (приоритетнее настроек и batchRef) */
+  outputRoot?: string;
+  /** папка-группа в ленте проектов (плоская, один уровень) */
+  folder?: string | null;
+  /** проект убран в архив (секция внизу ленты) */
+  archived?: boolean;
   /** проект создан из батча: итерации кладём в его папку с его лимитом */
   batchRef?: ProjectBatchRef | null;
   /** итерации-хуки (управляются сервером, не через PATCH) */
   iterations?: Iteration[] | null;
 };
 
-/** Длительность клипа на таймлайне */
+/** Длительность клипа на таймлайне (трим исходника, ужатый/растянутый скоростью) */
 export function clipDurationMs(c: TimelineClip): number {
-  return Math.max(c.outMs - c.inMs, 0);
+  return Math.round(Math.max(c.outMs - c.inMs, 0) / clipSpeed(c));
 }
 
 /** Суммарная длительность монтажа */
@@ -274,10 +312,12 @@ export type CaptionInputProps = {
     zoom?: number;
     panX?: number;
     panY?: number;
+    speed?: number;
   }[];
   /** превью музыки */
   musicSrc?: string | null;
   musicVolume?: number;
+  musicOffsetMs?: number;
   disclaimer?: Disclaimer | null;
   overlays?: TextOverlay[] | null;
 };

@@ -74,10 +74,12 @@ export const PreviewPlayer: React.FC<{
               zoom: c.zoom,
               panX: c.panX,
               panY: c.panY,
+              speed: c.speed,
             }))
           : undefined,
       musicSrc: music ? `/api/file/music/${encodeURIComponent(music.fileName)}` : null,
       musicVolume: music?.volume,
+      musicOffsetMs: music?.offsetMs ?? 0,
       disclaimer,
       overlays,
     }),

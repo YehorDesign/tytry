@@ -35,30 +35,36 @@ const caveat = loadCaveat("normal", {
   subsets: ["latin", "cyrillic"],
 });
 
-// Gilroy — локальный OTF из public/fonts (его нет в Google Fonts).
-// weight "100 900": единственное начертание Medium используется для любого
-// запрошенного веса — так браузер не рисует faux-bold и превью совпадает
-// с нативным рендером.
+// Локальные шрифты из public/fonts (их нет в Google Fonts либо нужен свой файл).
+// weight "100 900": один файл обслуживает любой запрошенный вес — так браузер
+// не рисует faux-bold и превью совпадает с нативным рендером.
+const LOCAL_FONTS: Record<string, { file: string; format: string }> = {
+  Gilroy: { file: "fonts/Gilroy-500.otf", format: "opentype" },
+  DynaPuff: { file: "fonts/DynaPuff-400.ttf", format: "truetype" },
+};
 if (typeof document !== "undefined") {
-  try {
-    const handle = delayRender("Loading Gilroy");
-    const face = new FontFace(
-      "Gilroy",
-      `url("${staticFile("fonts/Gilroy-500.otf")}") format("opentype")`,
-      { weight: "100 900" }
-    );
-    face
-      .load()
-      .then((loaded) => document.fonts.add(loaded))
-      .catch(() => {})
-      .then(() => continueRender(handle));
-  } catch {
-    // вне контекста Remotion/браузера шрифт не нужен
+  for (const [family, { file, format }] of Object.entries(LOCAL_FONTS)) {
+    try {
+      const handle = delayRender(`Loading ${family}`);
+      const face = new FontFace(
+        family,
+        `url("${staticFile(file)}") format("${format}")`,
+        { weight: "100 900" }
+      );
+      face
+        .load()
+        .then((loaded) => document.fonts.add(loaded))
+        .catch(() => {})
+        .then(() => continueRender(handle));
+    } catch {
+      // вне контекста Remotion/браузера шрифт не нужен
+    }
   }
 }
 
 export const FONT_FAMILIES: Record<string, string> = {
   Gilroy: "Gilroy",
+  DynaPuff: "DynaPuff",
   Montserrat: montserrat.fontFamily,
   Unbounded: unbounded.fontFamily,
   Oswald: oswald.fontFamily,
@@ -70,6 +76,7 @@ export const FONT_FAMILIES: Record<string, string> = {
 /** Вбудовані шрифти для випадаючого списку в UI */
 export const BUILTIN_FONTS = [
   "Gilroy",
+  "DynaPuff",
   "Montserrat",
   "Unbounded",
   "Oswald",

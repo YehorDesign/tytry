@@ -510,6 +510,90 @@ select {
   margin-bottom: 8px;
 }
 
+/* ── карточки-группы правой панели ── */
+.panel-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--pc-tone, var(--border));
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.pc-captions { --pc-tone: var(--accent); }
+.pc-montage { --pc-tone: #6fa8dc; }
+.pc-iter { --pc-tone: #e8b34b; }
+.pc-overlay { --pc-tone: #c792ea; }
+.pc-music { --pc-tone: #66c2a5; }
+
+.panel-card-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.panel-card-head:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.panel-card-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+.panel-card-title {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.panel-card.open .panel-card-title {
+  color: var(--text);
+}
+.panel-card-badge {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--pc-tone, var(--text-faint));
+}
+.panel-card-chevron {
+  font-size: 10px;
+  color: var(--text-faint);
+  transition: transform 0.15s;
+  transform: rotate(-90deg);
+}
+.panel-card-chevron.open {
+  transform: rotate(0deg);
+}
+.panel-card-body {
+  padding: 2px 12px 12px;
+}
+/* внутри карточки табы без нижней линии на всю ширину */
+.panel-card .tabs {
+  padding: 0;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* блок действий: прилипает к низу панели, рендер всегда под рукой */
+.panel-actions {
+  position: sticky;
+  bottom: -14px;
+  margin: auto -14px -14px;
+  padding: 12px 14px 14px;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* сетка пресетов */
 .styles-grid {
   display: grid;
@@ -1025,6 +1109,17 @@ input[type="color"] {
   text-align: center;
   pointer-events: none;
 }
+/* перенос (ПКМ): клип уезжает в начало и пропадает со своего места */
+.hook-badge.move {
+  background: #ff8a5c;
+  border-radius: 8px;
+  padding: 0 4px;
+}
+.clip-block.hook-move {
+  border-color: #ff8a5c;
+  box-shadow: 0 0 0 1px rgba(255, 138, 92, 0.55), 0 0 10px rgba(255, 138, 92, 0.2);
+  opacity: 0.85;
+}
 
 /* строка итерации в правой панели */
 .iter-row {
@@ -1173,6 +1268,21 @@ input[type="color"] {
   display: flex;
   align-items: center;
   overflow: hidden;
+  cursor: grab;
+  user-select: none;
+}
+.music-block:hover {
+  border-color: #4a8a63;
+}
+.music-block.dragging {
+  cursor: grabbing;
+  border-color: #6bd18b;
+  box-shadow: 0 0 8px rgba(107, 209, 139, 0.25);
+}
+/* повторы лупа — только визуальная подсказка */
+.music-block.loop {
+  opacity: 0.3;
+  pointer-events: none;
 }
 .music-block .clip-block-text {
   color: #8fce9f;
@@ -1250,4 +1360,217 @@ input[type="color"] {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
+}
+
+/* ── итерации в ленте: мини-подгруппа под карточкой проекта ── */
+.iter-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: -4px 4px 2px 30px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+.iter-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  color: var(--text-dim);
+  user-select: none;
+}
+.iter-sub-row {
+  cursor: pointer;
+}
+.iter-sub-row:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.iter-sub-row.active {
+  background: var(--bg-panel);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.iter-sub-row.active .iter-sub-name {
+  color: var(--accent);
+}
+.iter-sub-branch {
+  color: var(--text-faint);
+}
+.iter-sub-name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.iter-sub-meta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+/* проект, у которого в сцене открыта итерация: подсветка мягче */
+.project-card.iter-open {
+  border-color: var(--border);
+}
+
+/* ── сцена: просмотр итерации как отдельного видео ── */
+.iter-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  max-height: 100%;
+  min-height: 0;
+}
+.iter-stage-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.iter-stage-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+/* ── папки в ленте проектов ── */
+.rail-folder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 8px;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-align: left;
+}
+.rail-folder:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.rail-folder.archive {
+  color: var(--text-faint);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 8px 8px;
+  margin-top: 8px;
+}
+.rail-folder-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rail-folder-count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+}
+
+/* ── контекстное меню карточки проекта ── */
+.ctx-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+}
+.ctx-menu {
+  position: fixed;
+  width: 280px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ctx-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+.ctx-item:hover {
+  background: var(--bg-hover);
+}
+.ctx-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  padding: 8px 8px 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.ctx-empty {
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 6px 8px;
+}
+.ctx-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ctx-meta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.ctx-x {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+}
+.ctx-x:hover {
+  color: var(--danger);
+  background: var(--bg-hover);
+}
+
+.clip-speed-badge {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.iter-stage-video {
+  min-height: 0;
+  max-height: calc(100% - 40px);
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: #000;
 }

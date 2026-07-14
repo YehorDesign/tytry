@@ -24,6 +24,8 @@ const EDITABLE_FIELDS: (keyof Project)[] = [
   "music",
   "disclaimer",
   "overlays",
+  "folder",
+  "archived",
 ];
 
 export async function PATCH(req: NextRequest, { params }: Params) {

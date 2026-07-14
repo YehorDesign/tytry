@@ -1,6 +1,6 @@
 // Хелперы монтажа. Только чистые функции — файл импортируется и клиентом.
 import type { Project, TimelineClip, Word } from "./types";
-import { clipDurationMs, totalClipsDurationMs } from "./types";
+import { clipDurationMs, clipSpeed, totalClipsDurationMs } from "./types";
 
 /**
  * Клипы проекта. У классического проекта из одного файла клипы не хранятся —
@@ -42,7 +42,8 @@ export function needsFlatten(project: Project): boolean {
     // трим ИЛИ «продление кадра» (outMs дальше конца исходника)
     c.outMs !== c.sourceDurationMs ||
     c.fileName !== project.video.fileName ||
-    hasTransform(c)
+    hasTransform(c) ||
+    clipSpeed(c) !== 1
   );
 }
 
@@ -123,20 +124,26 @@ export function remapWordsToClips(
       changed = true; // клип удалён — его слова тоже
       continue;
     }
-    // позиция слова в исходнике клипа: вырезана тримом → слово пропадает
-    const srcMid = o.clip.inMs + (mid - o.start);
+    // позиция слова в исходнике клипа (таймлайн → исходник через скорость):
+    // вырезана тримом → слово пропадает
+    const oSp = clipSpeed(o.clip);
+    const nSp = clipSpeed(n.clip);
+    const srcMid = o.clip.inMs + (mid - o.start) * oSp;
     if (srcMid < n.clip.inMs || srcMid >= n.clip.outMs) {
       changed = true;
       continue;
     }
-    const delta = n.start - o.start + (o.clip.inMs - n.clip.inMs);
-    if (delta === 0) {
+    // исходник → новый таймлайн: слово масштабируется вместе со скоростью клипа
+    const mapT = (t: number) =>
+      Math.round(n.start + (o.clip.inMs + (t - o.start) * oSp - n.clip.inMs) / nSp);
+    const startMs = Math.max(mapT(w.startMs), 0);
+    const endMs = Math.max(mapT(w.endMs), startMs + MIN_WORD_MS);
+    if (startMs === w.startMs && endMs === w.endMs) {
       out.push(w);
       continue;
     }
     changed = true;
-    const startMs = Math.max(w.startMs + delta, 0);
-    out.push({ ...w, startMs, endMs: Math.max(w.endMs + delta, startMs + MIN_WORD_MS) });
+    out.push({ ...w, startMs, endMs });
   }
   if (!changed) return words;
   return out.sort((a, b) => a.startMs - b.startMs);

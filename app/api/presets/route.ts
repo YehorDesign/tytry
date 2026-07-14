@@ -27,6 +27,10 @@ export async function POST(req: NextRequest) {
     name: body.name.trim().slice(0, 60),
     language: typeof body.language === "string" ? body.language : base.language,
     captions: typeof body.captions === "boolean" ? body.captions : base.captions,
+    captionsFromMusic:
+      typeof body.captionsFromMusic === "boolean"
+        ? body.captionsFromMusic
+        : (base.captionsFromMusic ?? false),
     trimSilence:
       typeof body.trimSilence === "boolean" ? body.trimSilence : base.trimSilence,
     styleId: CAPTION_STYLES.some((s) => s.id === body.styleId)

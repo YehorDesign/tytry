@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { rmFileSync } from "@/lib/rmrf";
+import { rmFileSync, rmrf } from "@/lib/rmrf";
+import { extractZip } from "@/lib/unzip";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -54,6 +55,95 @@ async function makeThumb(projectId: string, clip: TimelineClip) {
   ).catch(() => {});
 }
 
+// ── ZIP-архив → клипы монтажа ──
+const ZIP_EXT = /\.zip$/i;
+const MEDIA_EXT = /\.(mp4|mov|m4v|avi|mkv|webm|mpg|mpeg|wmv|png|jpe?g|webp|bmp)$/i;
+
+function listMediaRecursive(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "__MACOSX" || entry.name.startsWith("._") || entry.name.startsWith("."))
+      continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listMediaRecursive(full));
+    else if (MEDIA_EXT.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+
+/**
+ * Распаковывает архив во временную папку и переносит его медиафайлы в uploads
+ * как клипы, отсортированные по числу в имени (как AE-скрипт). Битые файлы
+ * пропускаются; совсем пустой архив — ошибка.
+ */
+async function zipToClips(file: File): Promise<TimelineClip[]> {
+  const tmpId = crypto.randomBytes(6).toString("hex");
+  const tmpZip = path.join(UPLOADS_DIR, `ziptmp-${tmpId}.zip`);
+  const tmpDir = path.join(UPLOADS_DIR, `ziptmp-${tmpId}`);
+  const clips: TimelineClip[] = [];
+  try {
+    fs.writeFileSync(tmpZip, Buffer.from(await file.arrayBuffer()));
+    fs.mkdirSync(tmpDir, { recursive: true });
+    await extractZip(tmpZip, tmpDir);
+    const media = listMediaRecursive(tmpDir).sort((a, b) =>
+      numericNameCompare(path.basename(a), path.basename(b))
+    );
+    for (const src of media) {
+      const clipId = crypto.randomBytes(6).toString("hex");
+      const fileName = `${clipId}${path.extname(src)}`;
+      const dest = path.join(UPLOADS_DIR, fileName);
+      try {
+        fs.renameSync(src, dest);
+        const meta = await probeMedia(dest);
+        clips.push({
+          id: clipId,
+          kind: meta.isImage ? "image" : "video",
+          fileName,
+          originalName: path.basename(src),
+          sourceDurationMs: meta.durationMs,
+          inMs: 0,
+          outMs: meta.durationMs,
+          width: meta.width,
+          height: meta.height,
+          hasAudio: meta.hasAudio,
+        });
+      } catch {
+        rmFileSync(dest); // битый файл внутри архива — пропускаем
+      }
+    }
+    if (clips.length === 0) {
+      throw new Error("No videos or images inside the archive");
+    }
+    return clips;
+  } finally {
+    await rmrf(tmpDir);
+    rmFileSync(tmpZip);
+  }
+}
+
+/** Монтаж-проект из готовых клипов (канвас — по первому видеоклипу). */
+function montageProject(id: string, name: string, clips: TimelineClip[]): Project {
+  const base = clips.find((c) => c.kind === "video") ?? clips[0];
+  return {
+    id,
+    name,
+    createdAt: new Date().toISOString(),
+    status: "uploaded",
+    language: "auto",
+    video: {
+      fileName: base.fileName,
+      originalName: base.originalName,
+      width: base.width,
+      height: base.height,
+      durationMs: totalClipsDurationMs(clips),
+      fps: 30,
+    },
+    words: null,
+    clips,
+    ...getDefaultStyle(),
+  };
+}
+
 export async function POST(req: NextRequest) {
   ensureWorkspace();
   const mode = req.nextUrl.searchParams.get("mode"); // null | "montage"
@@ -80,7 +170,8 @@ export async function POST(req: NextRequest) {
     const clips = getClips(project);
     for (const file of files) {
       try {
-        clips.push(await saveAsClip(file));
+        if (ZIP_EXT.test(file.name)) clips.push(...(await zipToClips(file)));
+        else clips.push(await saveAsClip(file));
       } catch (err) {
         errors.push({ name: file.name, error: err instanceof Error ? err.message : String(err) });
       }
@@ -98,7 +189,8 @@ export async function POST(req: NextRequest) {
     const clips: TimelineClip[] = [];
     for (const file of files) {
       try {
-        clips.push(await saveAsClip(file));
+        if (ZIP_EXT.test(file.name)) clips.push(...(await zipToClips(file)));
+        else clips.push(await saveAsClip(file));
       } catch (err) {
         errors.push({ name: file.name, error: err instanceof Error ? err.message : String(err) });
       }
@@ -106,26 +198,11 @@ export async function POST(req: NextRequest) {
     if (clips.length === 0) {
       return NextResponse.json({ error: "No usable files", errors }, { status: 400 });
     }
-    // канвас проекта — по первому видеоклипу (или первому клипу вообще)
-    const base = clips.find((c) => c.kind === "video") ?? clips[0];
-    const project: Project = {
+    const project = montageProject(
       id,
-      name: files[0] ? path.basename(files[0].name, path.extname(files[0].name)) : id,
-      createdAt: new Date().toISOString(),
-      status: "uploaded",
-      language: "auto",
-      video: {
-        fileName: base.fileName,
-        originalName: base.originalName,
-        width: base.width,
-        height: base.height,
-        durationMs: totalClipsDurationMs(clips),
-        fps: 30,
-      },
-      words: null,
-      clips,
-      ...getDefaultStyle(),
-    };
+      files[0] ? path.basename(files[0].name, path.extname(files[0].name)) : id,
+      clips
+    );
     saveProject(project);
     await makeThumb(id, clips[0]);
     return NextResponse.json({ created: [project], errors });
@@ -136,6 +213,27 @@ export async function POST(req: NextRequest) {
   for (const file of files) {
     if (IMAGE_EXT.test(file.name)) {
       errors.push({ name: file.name, error: "Images can only be added to a montage" });
+      continue;
+    }
+    // архив → монтаж-проект с именем архива
+    if (ZIP_EXT.test(file.name)) {
+      const id = crypto.randomBytes(6).toString("hex");
+      try {
+        const clips = await zipToClips(file);
+        const project = montageProject(
+          id,
+          path.basename(file.name, path.extname(file.name)),
+          clips
+        );
+        saveProject(project);
+        await makeThumb(id, clips[0]);
+        created.push(project);
+      } catch (err) {
+        errors.push({
+          name: file.name,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       continue;
     }
     const id = crypto.randomBytes(6).toString("hex");

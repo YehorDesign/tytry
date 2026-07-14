@@ -45,6 +45,15 @@ export function getJob(projectId: string): RenderJob | null {
   return state.jobs.get(projectId) ?? null;
 }
 
+/** Есть ли живой джоб (в очереди/в работе) для проекта или итерации. */
+export function hasActiveJob(key: string): boolean {
+  const job = state.jobs.get(key);
+  return (
+    !!job &&
+    (job.status === "queued" || job.status === "bundling" || job.status === "rendering")
+  );
+}
+
 /** Сколько видео рендерим одновременно. Chrome-движок всегда по одному. */
 function maxParallel(): number {
   const s = getSettings();
@@ -152,12 +161,14 @@ async function prepareInput(project: Project): Promise<string> {
       zoom: c.zoom,
       panX: c.panX,
       panY: c.panY,
+      speed: c.speed,
     })),
     width: project.video.width,
     height: project.video.height,
     fps,
     musicPath: project.music ? path.join(MUSIC_DIR, project.music.fileName) : null,
     musicVolume: project.music?.volume,
+    musicOffsetMs: project.music?.offsetMs ?? 0,
     outPath: flatPath,
   });
   return flatPath;
@@ -256,17 +267,12 @@ async function renderIteration(projectId: string, iterationId: string, job: Rend
   });
 }
 
-/** Папка видоса (для батч-проектов) или обычная папка вывода. */
+/** Итерации падают в ту же папку видоса, что и основной рендер. */
 function iterationOutputPath(project: Project, iteration: Iteration): string {
-  let dir = project.batchRef?.outputDir || getSettings().outputDir?.trim() || RENDERS_DIR;
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-  } catch {
-    dir = RENDERS_DIR;
-  }
-  const safeName =
-    project.name.replace(/[<>:"/\\|?* -]/g, "_").trim().slice(0, 60) || project.id;
-  return path.join(dir, `${safeName}_it${iteration.num}.mp4`);
+  return path.join(
+    resolveVideoDir(project),
+    `${safeProjectName(project)}_it${iteration.num}.mp4`
+  );
 }
 
 // ── запасной движок: Remotion + headless Chrome (как было раньше) ──
@@ -358,24 +364,45 @@ async function renderProjectChrome(projectId: string, job: RenderJob, origin: st
   });
 }
 
-/** Папка видоса (батч) или из настроек (если доступна), иначе workspace/renders. */
-function resolveOutputPath(project: Project): string {
-  let dir = RENDERS_DIR;
-  const custom = project.batchRef?.outputDir || getSettings().outputDir?.trim();
+function safeProjectName(project: Project): string {
+  return (
+    project.name.replace(/[<>:"/\\|?* -]/g, "_").trim().slice(0, 60) || project.id
+  );
+}
+
+/**
+ * Папка видоса — как в батче: у каждого видео своя подпапка с его именем
+ * внутри папки вывода (туда же падают итерации). У батч-проектов папка
+ * уже задана в batchRef. Без папки вывода — workspace/renders (плоско).
+ */
+function resolveVideoDir(project: Project): string {
+  const root = project.outputRoot?.trim();
+  const custom =
+    // корень из «Рендер всех» — приоритетнее всего
+    (root ? path.join(root, safeProjectName(project)) : "") ||
+    project.batchRef?.outputDir ||
+    (getSettings().outputDir?.trim()
+      ? path.join(getSettings().outputDir!.trim(), safeProjectName(project))
+      : "");
   if (custom) {
     try {
       fs.mkdirSync(custom, { recursive: true });
-      dir = custom;
+      return custom;
     } catch {
-      dir = RENDERS_DIR;
+      // папка недоступна — падаем во внутреннюю
     }
   }
-  const safeName =
-    project.name.replace(/[<>:"/\\|?* -]/g, "_").trim().slice(0, 60) ||
-    project.id;
-  let out = path.join(dir, `${safeName}_subtitled.mp4`);
+  return RENDERS_DIR;
+}
+
+function resolveOutputPath(project: Project): string {
+  const dir = resolveVideoDir(project);
+  const safeName = safeProjectName(project);
+  // внутри своей папки суффикс не нужен; во внутренней плоской — оставляем
+  const base = dir === RENDERS_DIR ? `${safeName}_subtitled` : safeName;
+  let out = path.join(dir, `${base}.mp4`);
   if (fs.existsSync(out)) {
-    out = path.join(dir, `${safeName}_${project.id}.mp4`);
+    out = path.join(dir, `${base}_${project.id}.mp4`);
   }
   return out;
 }
