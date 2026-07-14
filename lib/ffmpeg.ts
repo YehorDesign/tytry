@@ -1,12 +1,14 @@
 ﻿import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import ffmpegPath from "ffmpeg-static";
-import ffprobeStatic from "ffprobe-static";
+// НЕ ffprobe-static: у него в bin/darwin/arm64 лежит x86_64-бинарник —
+// на Apple Silicon без Rosetta любой probe падает с EBADARCH (-86).
+import ffprobeInstaller from "@ffprobe-installer/ffprobe";
 
 const exec = promisify(execFile);
 
 const FFMPEG = ffmpegPath as unknown as string;
-const FFPROBE = ffprobeStatic.path;
+const FFPROBE = ffprobeInstaller.path;
 
 export type ProbeResult = {
   width: number;

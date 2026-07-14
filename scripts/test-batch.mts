@@ -180,7 +180,7 @@ assert(empty.status === "error" && !!empty.error, "архив без видео 
 assert(!fs.existsSync(path.join(ws, "batches", "b1", "work", ok.id)), "рабочая папка успешного элемента убрана");
 
 // трим тишины: клип с 2с тишины в начале и ~2с в конце должен ужаться
-const ffprobe = (await import("ffprobe-static")).default.path;
+const ffprobe = (await import("@ffprobe-installer/ffprobe")).default.path;
 const probeDur = (file: string) =>
   Number(
     execFileSync(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]).toString()

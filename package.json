@@ -1,6 +1,6 @@
 {
   "name": "tytry",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "Local styled-captions generator for videos (Deepgram + Remotion)",
   "author": "PlayMe Studio",
@@ -58,6 +58,7 @@
   },
   "dependencies": {
     "@deepgram/sdk": "^3.9.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "@napi-rs/canvas": "^1.0.2",
     "@remotion/bundler": "^4.0.0",
     "@remotion/google-fonts": "^4.0.0",
@@ -65,7 +66,6 @@
     "@remotion/renderer": "^4.0.0",
     "extract-zip": "^2.0.1",
     "ffmpeg-static": "^5.2.0",
-    "ffprobe-static": "^3.1.0",
     "font-list": "^2.1.0",
     "next": "^15.3.2",
     "react": "^19.1.0",

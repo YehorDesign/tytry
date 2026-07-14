@@ -9,7 +9,7 @@ const nextConfig = {
     "@napi-rs/canvas",
     "esbuild",
     "ffmpeg-static",
-    "ffprobe-static",
+    "@ffprobe-installer/ffprobe",
   ],
 };
 
