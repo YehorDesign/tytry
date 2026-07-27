@@ -242,9 +242,34 @@ const en = {
   iterCancel: "Cancel",
   iterDraft: "draft",
   iterRenderOne: "Render this iteration",
+  iterRetry: "Retry — the paid translation is cached, only the render repeats",
   iterRenderDrafts: (n: number) => `🎬 Render iterations (${n})`,
   iterEmpty: "Each iteration duplicates the picked clips as a hook at the start and renders a separate file into the video folder.",
   iterDeleteConfirm: "Remove this iteration from the list? The rendered file is kept.",
+  iterTypeQuestion: "What kind of iteration?",
+  iterTypeHook: "🪝 Hook from clips",
+  iterTypeTranslate: "🌍 Video translation",
+  iterTranslateLang: "Translation languages — pick as many as you need",
+  iterTranslateAdd: (n: number) =>
+    n > 1 ? `➕ Add ${n} translations` : n === 1 ? "➕ Add translation" : "➕ Pick a language",
+  iterTranslateClear: "Clear selection",
+  iterTranslateHint:
+    "HeyGen re-dubs the speech with lip-sync via WaveSpeed (≈$2.3 per minute of video), then subtitles are re-transcribed in the new language automatically.",
+  iterTranslateNoKey: "Add a WaveSpeed key in Settings (⚙) first.",
+
+  // wavespeed
+  wavespeedKey: "WaveSpeed API key (video translation)",
+  wavespeedKeyMissing: "No key — video translation unavailable",
+  wavespeedHintPrefix: "Get a key at",
+
+  // cache
+  cacheTitle: "Cache",
+  cacheClean: "🧹 Clean",
+  cacheCleanConfirm:
+    "Remove cached files not used by any project (old flattens, orphaned uploads, leftovers)? Project sources and rendered files in your output folders are kept.",
+  cacheCleaned: (mb: number) => `Freed ${mb} MB`,
+  cacheAddTitle: "Increase cache limit by 5 GB",
+  cacheLimitLabel: "Cache limit, GB",
 
   // preset editor
   presetManage: "Presets",
@@ -537,9 +562,34 @@ const uk: Dict = {
   iterCancel: "Скасувати",
   iterDraft: "чернетка",
   iterRenderOne: "Рендерити цю ітерацію",
+  iterRetry: "Спробувати ще раз — переклад кешується, платити вдруге не треба",
   iterRenderDrafts: (n: number) => `🎬 Рендер ітерацій (${n})`,
   iterEmpty: "Кожна ітерація дублює обрані кліпи як хук на початку і рендерить окремий файл у папку відео.",
   iterDeleteConfirm: "Прибрати цю ітерацію зі списку? Готовий файл залишиться.",
+  iterTypeQuestion: "Яка ітерація?",
+  iterTypeHook: "🪝 Хук із кліпів",
+  iterTypeTranslate: "🌍 Переклад відео",
+  iterTranslateLang: "Мови перекладу — можна відмітити кілька",
+  iterTranslateAdd: (n: number) =>
+    n > 1 ? `➕ Додати ${n} переклади` : n === 1 ? "➕ Додати переклад" : "➕ Обери мову",
+  iterTranslateClear: "Зняти відмітки",
+  iterTranslateHint:
+    "HeyGen передубльовує мову з ліпсинком через WaveSpeed (≈$2.3 за хвилину відео), потім субтитри автоматично розпізнаються заново новою мовою.",
+  iterTranslateNoKey: "Спершу додай ключ WaveSpeed у налаштуваннях (⚙).",
+
+  // wavespeed
+  wavespeedKey: "Ключ WaveSpeed API (переклад відео)",
+  wavespeedKeyMissing: "Ключа немає — переклад відео недоступний",
+  wavespeedHintPrefix: "Ключ можна взяти на",
+
+  // cache
+  cacheTitle: "Кеш",
+  cacheClean: "🧹 Почистити",
+  cacheCleanConfirm:
+    "Прибрати кешовані файли, які не використовує жоден проєкт (старі склейки, осиротілі завантаження, залишки)? Джерела проєктів і готові рендери у папках виводу залишаться.",
+  cacheCleaned: (mb: number) => `Звільнено ${mb} МБ`,
+  cacheAddTitle: "Збільшити ліміт кешу на 5 ГБ",
+  cacheLimitLabel: "Ліміт кешу, ГБ",
 
   presetManage: "Пресети",
   presetNew: "+ Новий пресет",

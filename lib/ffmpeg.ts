@@ -4,6 +4,8 @@ import ffmpegPath from "ffmpeg-static";
 // НЕ ffprobe-static: у него в bin/darwin/arm64 лежит x86_64-бинарник —
 // на Apple Silicon без Rosetta любой probe падает с EBADARCH (-86).
 import ffprobeInstaller from "@ffprobe-installer/ffprobe";
+import { detectEncoder, type EncoderChoice } from "./render-native/encoder";
+import { getSettings } from "./settings";
 
 const exec = promisify(execFile);
 
@@ -266,17 +268,36 @@ export async function flattenTimeline(opts: {
     audioOut = "[aout]";
   }
 
-  args.push(
+  const tail = [
     "-filter_complex", graph.filters.join(";"),
     "-map", graph.videoOut,
     "-map", audioOut,
-    // промежуточный файл: почти без потерь, финальный энкод будет дальше
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "14",
     "-c:a", "aac", "-b:a", "192k",
     "-movflags", "+faststart",
-    outPath
-  );
-  await exec(FFMPEG, args, { maxBuffer: 32 * 1024 * 1024 });
+    outPath,
+  ];
+
+  // промежуточный файл: почти без потерь, финальный энкод будет дальше;
+  // кодируем NVENC-ом, если он есть — CPU-склейка длинного монтажа занимает минуты
+  const s = getSettings();
+  const encoder: EncoderChoice =
+    s.encoder === "cpu" || s.encoder === "nvenc" ? s.encoder : await detectEncoder();
+  const videoArgs = (enc: EncoderChoice) =>
+    enc === "nvenc"
+      ? ["-c:v", "h264_nvenc", "-preset", "p4", "-rc:v", "vbr", "-cq", "14", "-b:v", "0", "-profile:v", "high"]
+      : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "14"];
+
+  try {
+    await exec(FFMPEG, [...args, ...videoArgs(encoder), ...tail], {
+      maxBuffer: 32 * 1024 * 1024,
+    });
+  } catch (err) {
+    // NVENC отвалился (лимит сессий/драйвер) — пробуем CPU, как в рендере
+    if (encoder !== "nvenc") throw err;
+    await exec(FFMPEG, [...args, ...videoArgs("cpu"), ...tail], {
+      maxBuffer: 32 * 1024 * 1024,
+    });
+  }
 }
 
 /** Аудио склейки клипов (без музыки) → моно-WAV 16 кГц для Deepgram. */

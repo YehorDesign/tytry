@@ -7,3 +7,4 @@ remotion-bundle
 *.tsbuildinfo
 next-env.d.ts
 dist-mac
+scripts/*.png

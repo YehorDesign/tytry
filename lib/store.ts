@@ -127,4 +127,12 @@ export function deleteProject(id: string) {
   ]) {
     if (file) rmFileSync(file);
   }
+  // производные файлы проекта (переводы, склейки итераций, аудио) — по префиксу id
+  for (const dir of [UPLOADS_DIR, AUDIO_DIR, RENDERS_DIR]) {
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        if (name.startsWith(`${id}_`)) rmFileSync(path.join(dir, name));
+      }
+    } catch {}
+  }
 }

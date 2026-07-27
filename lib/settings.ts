@@ -7,6 +7,10 @@ const SETTINGS_FILE = path.join(WORKSPACE, "settings.json");
 
 export type Settings = {
   deepgramApiKey?: string;
+  /** ключ WaveSpeed AI — перевод видео (HeyGen video-translate) */
+  wavespeedApiKey?: string;
+  /** лимит кэша (workspace) в ГБ; по умолчанию 10 */
+  cacheLimitGb?: number;
   /** папка для готовых рендеров; пусто = workspace/renders */
   outputDir?: string;
   /** сколько видео рендерить одновременно (1–4, по умолчанию 3) */
@@ -50,4 +54,16 @@ export function saveSettings(patch: Partial<Settings>) {
 export function getDeepgramKey(): string | undefined {
   const fromSettings = getSettings().deepgramApiKey?.trim();
   return fromSettings || process.env.DEEPGRAM_API_KEY || undefined;
+}
+
+export function getWavespeedKey(): string | undefined {
+  const fromSettings = getSettings().wavespeedApiKey?.trim();
+  return fromSettings || process.env.WAVESPEED_API_KEY || undefined;
+}
+
+/** Лимит кэша в байтах (по умолчанию 10 ГБ). */
+export function getCacheLimitBytes(): number {
+  const gb = getSettings().cacheLimitGb;
+  const safe = typeof gb === "number" && gb >= 1 && gb <= 500 ? gb : 10;
+  return safe * 1024 * 1024 * 1024;
 }

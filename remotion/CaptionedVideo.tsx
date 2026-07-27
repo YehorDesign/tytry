@@ -33,8 +33,9 @@ import {
   overlayActiveAt,
   overlayFontSize,
 } from "../lib/overlays";
+import { allWordsText, isRtlWords, resolveFamily } from "../lib/scripts";
 import { resolveStyle } from "../lib/styles";
-import { FONT_FAMILIES } from "./fonts";
+import { fontStack } from "./fonts";
 
 export const CaptionedVideo: React.FC<CaptionInputProps> = ({
   videoSrc,
@@ -58,6 +59,9 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
     () => groupWordsIntoPages(words, style.maxWordsPerPage),
     [words, style.maxWordsPerPage]
   );
+  // весь текст субтитров: по нему шрифт выбирается один раз на всё видео
+  // (та же чистая логика, что и в нативном рендере — lib/scripts.ts)
+  const captionsText = useMemo(() => allWordsText(words), [words]);
   const page = findActivePage(pages, ms);
   // страница со своим стилем отрезка рисуется им, остальные — стилем проекта
   const pageStyle = useMemo(
@@ -180,7 +184,7 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
               padding: "0 5%",
               boxSizing: "border-box",
               textAlign: "center",
-              fontFamily: FONT_FAMILIES["Montserrat"] ?? "Montserrat",
+              fontFamily: fontStack(resolveFamily("Montserrat", disclaimer.text)),
               fontWeight: 500,
               fontSize: Math.max(Math.round(width * disclaimer.sizeRatio), 8),
               lineHeight: 1.3,
@@ -194,7 +198,14 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
         </AbsoluteFill>
       ) : null}
       {page ? (
-        <CaptionOverlay page={page} ms={ms} style={pageStyle} frameWidth={width} fps={fps} />
+        <CaptionOverlay
+          page={page}
+          ms={ms}
+          style={pageStyle}
+          frameWidth={width}
+          fps={fps}
+          captionsText={captionsText}
+        />
       ) : null}
       {/* текст-плашки (TikTok): поверх субтитров */}
       {overlays?.map((o) =>
@@ -234,7 +245,7 @@ const TextOverlayBox: React.FC<{ overlay: TextOverlay; frameWidth: number }> = (
             color: "#000000",
             borderRadius: fontSize * OVERLAY_RADIUS_EM,
             padding: `${fontSize * OVERLAY_PAD_Y_EM}px ${fontSize * OVERLAY_PAD_X_EM}px`,
-            fontFamily: FONT_FAMILIES[OVERLAY_FONT_FAMILY] ?? OVERLAY_FONT_FAMILY,
+            fontFamily: fontStack(resolveFamily(OVERLAY_FONT_FAMILY, overlay.text)),
             fontWeight: OVERLAY_FONT_WEIGHT,
             fontSize,
             lineHeight: OVERLAY_LINE_HEIGHT,
@@ -256,7 +267,9 @@ const CaptionOverlay: React.FC<{
   style: CaptionStyle;
   frameWidth: number;
   fps: number;
-}> = ({ page, ms, style, frameWidth, fps }) => {
+  /** все слова видео: шрифт выбирается по ним, а не по этой странице */
+  captionsText: string;
+}> = ({ page, ms, style, frameWidth, fps, captionsText }) => {
   const frame = useCurrentFrame();
   const fontSize = Math.round(frameWidth * style.fontSizeRatio);
   const activeIndex = findActiveWordIndex(page, ms);
@@ -299,7 +312,9 @@ const CaptionOverlay: React.FC<{
     columnGap: fontSize * (0.28 + (style.activeScale ? (style.activeScale - 1) * 1.6 : 0)),
     rowGap: fontSize * 0.12,
     maxWidth: "82%",
-    fontFamily: FONT_FAMILIES[style.fontFamily] ?? style.fontFamily,
+    // иврит читается справа налево: flex сам переставит слова и переносы
+    direction: isRtlWords(page.words) ? "rtl" : "ltr",
+    fontFamily: fontStack(resolveFamily(style.fontFamily, captionsText)),
     fontWeight: style.fontWeight,
     fontSize,
     lineHeight: 1.25,
@@ -349,6 +364,7 @@ const CaptionOverlay: React.FC<{
                 style={style}
                 fontSize={fontSize}
                 frameWidth={frameWidth}
+                captionsText={captionsText}
               />
             ))}
           </div>
@@ -478,10 +494,12 @@ const DesignWord: React.FC<{
   style: CaptionStyle;
   fontSize: number;
   frameWidth: number;
-}> = ({ word, variant, style, fontSize, frameWidth }) => {
+  /** все слова видео: шрифт один на ролик, без скачков между словами */
+  captionsText: string;
+}> = ({ word, variant, style, fontSize, frameWidth, captionsText }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const family = variant.font ?? style.fontFamily;
+  const family = resolveFamily(variant.font ?? style.fontFamily, captionsText);
   // у дизайн-слов знаки препинания убираем — это «обложка», не текст
   const text = word.text.replace(/[.,!?;:…]+$/u, "");
   if (!text) return null;
@@ -505,7 +523,7 @@ const DesignWord: React.FC<{
   return (
     <span
       style={{
-        fontFamily: FONT_FAMILIES[family] ?? family,
+        fontFamily: fontStack(family),
         fontWeight: variant.weight ?? style.fontWeight,
         fontSize: finalSize,
         fontStyle: variant.italic ? "italic" : "normal",

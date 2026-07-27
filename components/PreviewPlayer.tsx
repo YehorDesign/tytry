@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { CaptionedVideo } from "@/remotion/CaptionedVideo";
+import { fontStack } from "@/remotion/fonts";
+import { resolveFamily } from "@/lib/scripts";
 import {
   OVERLAY_FONT_FAMILY,
   OVERLAY_FONT_WEIGHT,
@@ -194,7 +196,9 @@ export const PreviewPlayer: React.FC<{
                     maxWidth: `${OVERLAY_MAX_W_RATIO * 100}%`,
                     borderRadius: fs * OVERLAY_RADIUS_EM,
                     padding: `${fs * OVERLAY_PAD_Y_EM}px ${fs * OVERLAY_PAD_X_EM}px`,
-                    fontFamily: `${OVERLAY_FONT_FAMILY}, sans-serif`,
+                    // те же запаски, что и в композиции: иначе призрак плашки
+                    // с ивритом/каной меряется другим шрифтом и не совпадает
+                    fontFamily: `${fontStack(resolveFamily(OVERLAY_FONT_FAMILY, o.text))}, sans-serif`,
                     fontWeight: OVERLAY_FONT_WEIGHT,
                     fontSize: fs,
                     lineHeight: OVERLAY_LINE_HEIGHT,

@@ -39,6 +39,7 @@ import {
   type Word,
   type WordStyle,
 } from "@/lib/types";
+import { TRANSLATE_LANGUAGES, translateLanguage } from "@/lib/languages";
 
 const PreviewPlayer = dynamic(
   () => import("@/components/PreviewPlayer").then((m) => m.PreviewPlayer),
@@ -70,6 +71,15 @@ export default function Home() {
   const [renderEngine, setRenderEngine] = useState("native");
   const [maxSizeMb, setMaxSizeMb] = useState(0); // 0 = без лимита
   const [savingSettings, setSavingSettings] = useState(false);
+  // ключ WaveSpeed (перевод видео)
+  const [hasWsKey, setHasWsKey] = useState<boolean | null>(null);
+  const [maskedWsKey, setMaskedWsKey] = useState<string | null>(null);
+  const [wsKeyInput, setWsKeyInput] = useState("");
+
+  // кэш: занято место / лимит / сообщение после чистки
+  const [cacheBytes, setCacheBytes] = useState<number | null>(null);
+  const [cacheLimitGb, setCacheLimitGb] = useState(10);
+  const [cacheMsg, setCacheMsg] = useState<string | null>(null);
 
   // локальное (редактируемое) состояние выбранного проекта
   const [projectName, setProjectName] = useState("");
@@ -99,6 +109,11 @@ export default function Home() {
   // режим «итерация»: ЛКМ = дубль клипа в хук, ПКМ = перенос (по порядку выбора)
   const [hookMode, setHookMode] = useState(false);
   const [hookSelection, setHookSelection] = useState<HookClip[]>([]);
+  // добавление итерации: выбор типа (хук/перевод) и язык перевода
+  const [iterChoice, setIterChoice] = useState(false);
+  const [translateMode, setTranslateMode] = useState(false);
+  /** отмеченные языки перевода: за один раз можно создать сразу несколько */
+  const [translateLangs, setTranslateLangs] = useState<string[]>([]);
   const [iterPreviewId, setIterPreviewId] = useState<string | null>(null);
   /** итерация, выбранная в ленте слева — показывается в сцене вместо проекта */
   const [railIterId, setRailIterId] = useState<string | null>(null);
@@ -358,6 +373,9 @@ export default function Home() {
       const data = (await res.json()) as {
         hasDeepgramKey: boolean;
         maskedKey: string | null;
+        hasWavespeedKey?: boolean;
+        maskedWavespeedKey?: string | null;
+        cacheLimitGb?: number;
         outputDir: string;
         parallelRenders?: number;
         encoder?: string;
@@ -367,6 +385,9 @@ export default function Home() {
       };
       setHasKey(data.hasDeepgramKey);
       setMaskedKey(data.maskedKey);
+      setHasWsKey(data.hasWavespeedKey ?? false);
+      setMaskedWsKey(data.maskedWavespeedKey ?? null);
+      setCacheLimitGb(data.cacheLimitGb ?? 10);
       setOutputDir(data.outputDir);
       setParallelRenders(data.parallelRenders ?? 3);
       setEncoder(data.encoder ?? "auto");
@@ -391,14 +412,17 @@ export default function Home() {
         encoder,
         renderEngine,
         maxSizeMb,
+        cacheLimitGb,
       };
       if (keyInput.trim()) body.deepgramApiKey = keyInput.trim();
+      if (wsKeyInput.trim()) body.wavespeedApiKey = wsKeyInput.trim();
       await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       setKeyInput("");
+      setWsKeyInput("");
       await refreshSettings();
       setSettingsOpen(false);
     } finally {
@@ -409,6 +433,46 @@ export default function Home() {
   const browseFolder = async () => {
     const picked = await window.titryNative?.pickFolder();
     if (picked) setOutputDir(picked);
+  };
+
+  // ── кэш: полосочка в топбаре, чистка, увеличение лимита ──
+  const refreshCache = useCallback(async () => {
+    try {
+      const res = await fetch("/api/cache");
+      const data = (await res.json()) as { bytes: number };
+      setCacheBytes(data.bytes);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCache();
+    const interval = setInterval(refreshCache, 60_000);
+    return () => clearInterval(interval);
+  }, [refreshCache]);
+
+  const cleanCacheNow = async () => {
+    if (!confirm(t.cacheCleanConfirm)) return;
+    try {
+      const res = await fetch("/api/cache", { method: "POST" });
+      const data = (await res.json()) as { freedBytes: number; bytes: number };
+      setCacheBytes(data.bytes);
+      setCacheMsg(t.cacheCleaned(Math.round(data.freedBytes / 1024 / 1024)));
+      setTimeout(() => setCacheMsg(null), 4000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const bumpCacheLimit = async () => {
+    const next = Math.min(cacheLimitGb + 5, 500);
+    setCacheLimitGb(next);
+    await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cacheLimitGb: next }),
+    }).catch(() => {});
   };
 
   // ── позиция плеера ──
@@ -1273,9 +1337,43 @@ export default function Home() {
     await refresh();
   };
 
-  /** запускает рендер итерации-черновика (или всех черновиков сразу) */
-  const renderDraftIteration = async (iterationId: string) => {
+  const toggleTranslateLang = (code: string) =>
+    setTranslateLangs((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+
+  /**
+   * Итерации-переводы: по черновику на каждый отмеченный язык, рендерятся
+   * потом теми же кнопками. Запросы последовательно — каждый дописывает
+   * проект на диске, параллельные записи затирали бы друг друга.
+   */
+  const addTranslateIterations = async () => {
     const id = selectedIdRef.current;
+    if (!id || translateLangs.length === 0) return;
+    setTranslateMode(false);
+    setIterChoice(false);
+    for (const language of translateLangs) {
+      await fetch(`/api/projects/${id}/iterate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          translate: { language },
+          musicOffsetMs: music?.offsetMs ?? 0,
+          render: false,
+        }),
+      }).catch(() => {});
+    }
+    setTranslateLangs([]);
+    await refresh();
+  };
+
+  /**
+   * Запускает рендер итерации-черновика (или повторяет упавшую: enqueue
+   * сбрасывает статус и ошибку). projectId нужен для карточек в рейле,
+   * которые могут быть не выбранным проектом.
+   */
+  const renderDraftIteration = async (iterationId: string, projectId?: string) => {
+    const id = projectId ?? selectedIdRef.current;
     if (!id) return;
     await fetch(`/api/projects/${id}/iterate`, {
       method: "POST",
@@ -1593,6 +1691,35 @@ export default function Home() {
           ТИТ<em>РИ</em>
           <span className="logo-sub">deepgram × nvenc</span>
         </div>
+        {cacheBytes !== null &&
+          (() => {
+            const usedGb = cacheBytes / 1024 ** 3;
+            const pct = Math.min(usedGb / cacheLimitGb, 1);
+            const color =
+              pct < 0.7 ? "var(--accent)" : pct < 0.9 ? "#e8a13c" : "var(--danger)";
+            return (
+              <div
+                className="cache-widget"
+                title={`${t.cacheTitle}: ${usedGb.toFixed(1)} / ${cacheLimitGb} GB`}
+              >
+                <div className="cache-bar">
+                  <div
+                    className="cache-fill"
+                    style={{ width: `${Math.max(pct * 100, 3)}%`, background: color }}
+                  />
+                </div>
+                <span className="cache-label">
+                  {cacheMsg ?? `${usedGb.toFixed(1)}/${cacheLimitGb} GB`}
+                </span>
+                <button className="cache-btn" onClick={cleanCacheNow} title={t.cacheClean}>
+                  🧹
+                </button>
+                <button className="cache-btn" onClick={bumpCacheLimit} title={t.cacheAddTitle}>
+                  ＋
+                </button>
+              </div>
+            );
+          })()}
         <div className="topbar-spacer" />
         <div className="locale-toggle">
           <button
@@ -1628,7 +1755,11 @@ export default function Home() {
         >
           <option value="auto">{t.langAuto}</option>
           <option value="uk">{t.langUk}</option>
-          <option value="en">{t.langEn}</option>
+          {TRANSLATE_LANGUAGES.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.flag} {l.label}
+            </option>
+          ))}
         </select>
         <button
           className="btn"
@@ -1842,7 +1973,13 @@ export default function Home() {
                       }}
                     >
                       <span className="iter-sub-branch">↳</span>
-                      <span className="iter-sub-name">it{it.num}</span>
+                      <span className="iter-sub-name">
+                        {it.kind === "translate"
+                          ? `${translateLanguage(it.language ?? "")?.flag ?? "🌍"} ${(
+                              it.language ?? ""
+                            ).toUpperCase()}`
+                          : `it${it.num}`}
+                      </span>
                       {it.status === "draft" && (
                         <span className="iter-sub-meta">{t.iterDraft}</span>
                       )}
@@ -1854,9 +1991,23 @@ export default function Home() {
                         </span>
                       )}
                       {it.status === "error" && (
-                        <span className="iter-sub-meta" style={{ color: "var(--danger)" }}>
-                          {t.batchStatusError}
-                        </span>
+                        <>
+                          <span className="iter-sub-meta" style={{ color: "var(--danger)" }}>
+                            {t.batchStatusError}
+                          </span>
+                          <span
+                            className="iter-sub-meta iter-sub-retry"
+                            role="button"
+                            title={t.iterRetry}
+                            onClick={async (e) => {
+                              e.stopPropagation(); // клик по строке открывает итерацию
+                              await renderDraftIteration(it.id, p.id);
+                              await refresh();
+                            }}
+                          >
+                            🔄
+                          </span>
+                        </>
                       )}
                       {it.status === "done" && <span className="iter-sub-meta">▶</span>}
                     </div>
@@ -2218,11 +2369,101 @@ export default function Home() {
                     }
                   >
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {!hookMode ? (
-                        <button className="btn btn-sm" onClick={startHookMode}>
+                      {!hookMode && !iterChoice && !translateMode && (
+                        <button className="btn btn-sm" onClick={() => setIterChoice(true)}>
                           {t.iterAdd}
                         </button>
-                      ) : (
+                      )}
+                      {iterChoice && (
+                        <>
+                          <p className="hint">{t.iterTypeQuestion}</p>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button
+                              className="btn btn-sm"
+                              style={{ flex: 1 }}
+                              onClick={() => {
+                                setIterChoice(false);
+                                startHookMode();
+                              }}
+                            >
+                              {t.iterTypeHook}
+                            </button>
+                            <button
+                              className="btn btn-sm"
+                              style={{ flex: 1 }}
+                              onClick={() => {
+                                setIterChoice(false);
+                                setTranslateMode(true);
+                              }}
+                            >
+                              {t.iterTypeTranslate}
+                            </button>
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              onClick={() => setIterChoice(false)}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      {translateMode && (
+                        <>
+                          <p className="hint">{t.iterTranslateHint}</p>
+                          {hasWsKey === false && (
+                            <p className="hint" style={{ color: "var(--danger)" }}>
+                              {t.iterTranslateNoKey}
+                            </p>
+                          )}
+                          {/* плитка вместо <select>: нативный попап рисует
+                              главный процесс Electron, и во время рендера он
+                              не открывается — а плитка живёт в интерфейсе */}
+                          <div className="lang-grid" title={t.iterTranslateLang}>
+                            {TRANSLATE_LANGUAGES.map((l) => (
+                              <button
+                                key={l.code}
+                                type="button"
+                                className={`lang-chip ${
+                                  translateLangs.includes(l.code) ? "on" : ""
+                                }`}
+                                onClick={() => toggleTranslateLang(l.code)}
+                              >
+                                <span className="lang-chip-flag">{l.flag}</span>
+                                {l.label}
+                              </button>
+                            ))}
+                          </div>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button
+                              className="btn btn-sm btn-accent"
+                              style={{ flex: 1 }}
+                              disabled={hasWsKey === false || translateLangs.length === 0}
+                              onClick={addTranslateIterations}
+                            >
+                              {t.iterTranslateAdd(translateLangs.length)}
+                            </button>
+                            {translateLangs.length > 0 && (
+                              <button
+                                className="btn btn-sm btn-ghost"
+                                title={t.iterTranslateClear}
+                                onClick={() => setTranslateLangs([])}
+                              >
+                                ✕
+                              </button>
+                            )}
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              onClick={() => {
+                                setTranslateMode(false);
+                                setTranslateLangs([]);
+                              }}
+                            >
+                              {t.iterCancel}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      {hookMode && (
                         <>
                           <p className="hint">{t.iterHint}</p>
                           <div style={{ display: "flex", gap: 6 }}>
@@ -2240,9 +2481,10 @@ export default function Home() {
                           </div>
                         </>
                       )}
-                      {(selected.iterations ?? []).length === 0 && !hookMode && (
-                        <p className="hint">{t.iterEmpty}</p>
-                      )}
+                      {(selected.iterations ?? []).length === 0 &&
+                        !hookMode &&
+                        !iterChoice &&
+                        !translateMode && <p className="hint">{t.iterEmpty}</p>}
                       {(selected.iterations ?? []).some((i) => i.status === "draft") &&
                         !hookMode && (
                           <button className="btn btn-sm btn-accent" onClick={renderAllDrafts}>
@@ -2255,7 +2497,13 @@ export default function Home() {
                         )}
                       {(selected.iterations ?? []).map((it) => (
                         <div key={it.id} className="iter-row">
-                          <span className="iter-name">it{it.num}</span>
+                          <span className="iter-name">
+                            {it.kind === "translate"
+                              ? `${translateLanguage(it.language ?? "")?.flag ?? "🌍"} ${(
+                                  it.language ?? ""
+                                ).toUpperCase()}`
+                              : `it${it.num}`}
+                          </span>
                           {it.status === "draft" && (
                             <>
                               <span className="hint" style={{ flex: 1 }}>
@@ -2289,13 +2537,27 @@ export default function Home() {
                             </>
                           )}
                           {it.status === "error" && (
-                            <span
-                              className="hint"
-                              style={{ flex: 1, color: "var(--danger)" }}
-                              title={it.error}
-                            >
-                              {t.batchStatusError}
-                            </span>
+                            <>
+                              <span
+                                className="hint"
+                                style={{ flex: 1, color: "var(--danger)" }}
+                                title={it.error}
+                              >
+                                {t.batchStatusError}
+                              </span>
+                              {/* перевод кэшируется в uploads: повтор после сбоя
+                                  Deepgram/склейки не платит за перевод заново */}
+                              <button
+                                className="btn btn-sm btn-ghost"
+                                title={t.iterRetry}
+                                onClick={async () => {
+                                  await renderDraftIteration(it.id);
+                                  await refresh();
+                                }}
+                              >
+                                🔄
+                              </button>
+                            </>
                           )}
                           {it.status === "done" && (
                             <>
@@ -3053,6 +3315,37 @@ export default function Home() {
             </div>
 
             <div>
+              <div className="section-label">{t.wavespeedKey}</div>
+              {hasWsKey && maskedWsKey ? (
+                <p className="key-badge" style={{ marginBottom: 8 }}>
+                  ● {t.keySet} {maskedWsKey}
+                </p>
+              ) : (
+                <p className="hint" style={{ marginBottom: 8 }}>
+                  {t.wavespeedKeyMissing}
+                </p>
+              )}
+              <input
+                className="text-input"
+                type="password"
+                placeholder={hasWsKey ? t.keyReplacePlaceholder : t.keyPlaceholder}
+                value={wsKeyInput}
+                onChange={(e) => setWsKeyInput(e.target.value)}
+              />
+              <p className="hint" style={{ marginTop: 8 }}>
+                {t.wavespeedHintPrefix}{" "}
+                <a
+                  href="https://wavespeed.ai/"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: "var(--accent)" }}
+                >
+                  wavespeed.ai
+                </a>
+              </p>
+            </div>
+
+            <div>
               <div className="section-label">{t.outputFolder}</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <input
@@ -3136,6 +3429,18 @@ export default function Home() {
                   )}
                 </div>
                 {maxSizeMb > 0 && <p className="hint">{t.sizeLimitHint}</p>}
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className="hint" style={{ flex: 1 }}>{t.cacheLimitLabel}</span>
+                  <input
+                    className="text-input"
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={cacheLimitGb}
+                    onChange={(e) => setCacheLimitGb(Number(e.target.value) || 10)}
+                    style={{ width: 80 }}
+                  />
+                </div>
                 <p className="hint">{t.parallelHint}</p>
               </div>
             </div>

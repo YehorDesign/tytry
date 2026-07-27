@@ -3,7 +3,8 @@
 // чтобы не зависеть от того, как skia матчит веса внутри одного семейства.
 import fs from "node:fs";
 import path from "node:path";
-import { GlobalFonts } from "@napi-rs/canvas";
+import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
+import { fallbackChain, resolveFamily, scriptOf } from "../scripts";
 
 const APP_ROOT = process.env.TYTRY_APP_DIR || process.cwd();
 const FONTS_DIR = path.join(APP_ROOT, "fonts");
@@ -13,6 +14,8 @@ const BUILTIN: Record<string, { weights: number[]; italicWeights?: number[] }> =
   Gilroy: { weights: [500] },
   DynaPuff: { weights: [400] },
   Montserrat: { weights: [500, 600, 700, 800, 900] },
+  // латиница + кириллица + иврит: им же рисуется RTL-текст (см. lib/scripts.ts)
+  Rubik: { weights: [500, 700, 800, 900] },
   Unbounded: { weights: [700, 900] },
   Oswald: { weights: [600, 700] },
   JetBrainsMono: { weights: [700, 800] },
@@ -43,6 +46,97 @@ export function ensureFontsRegistered() {
       registerFirst(`${family}-${w}i`, `${family}-${w}i`);
     }
   }
+}
+
+// ── подмена шрифта по реальному наличию глифов ──
+// skia фолбэк не делает: если в шрифте нет буквы, рисуется «плашка» (.notdef).
+// Поэтому проверяем каждую букву сами и при нехватке берём шрифт, где она есть.
+
+const PROBE_PX = 48;
+const PROBE_BOX = PROBE_PX * 2;
+/** U+E000 — private use, его нет ни в одном шрифте: эталон «плашки» */
+const NOTDEF = String.fromCodePoint(0xe000);
+
+let probeCtx: ReturnType<ReturnType<typeof createCanvas>["getContext"]> | null = null;
+const glyphCache = new Map<string, boolean>();
+const familyCache = new Map<string, string>();
+const warned = new Set<string>();
+
+function stamp(family: string, ch: string): string {
+  if (!probeCtx) {
+    probeCtx = createCanvas(PROBE_BOX, PROBE_BOX).getContext("2d");
+  }
+  const ctx = probeCtx;
+  ctx.clearRect(0, 0, PROBE_BOX, PROBE_BOX);
+  ctx.font = fontString(family, 700, PROBE_PX, false);
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#fff";
+  ctx.fillText(ch, 2, PROBE_PX * 1.2);
+  const d = ctx.getImageData(0, 0, PROBE_BOX, PROBE_BOX).data;
+  let out = "";
+  for (let i = 3; i < d.length; i += 4) out += d[i] > 40 ? "1" : "0";
+  return out;
+}
+
+/** Есть ли в шрифте глиф этого символа (а не «плашка» и не пустота). */
+function hasGlyph(family: string, ch: string): boolean {
+  const key = `${family}|${ch}`;
+  const cached = glyphCache.get(key);
+  if (cached !== undefined) return cached;
+  ensureFontsRegistered();
+  const img = stamp(family, ch);
+  const ok = /1/.test(img) && img !== stamp(family, NOTDEF);
+  glyphCache.set(key, ok);
+  return ok;
+}
+
+/** Все ли буквы текста есть в шрифте (пробелы и переводы строк не считаем). */
+export function fontCovers(family: string, text: string): boolean {
+  for (const ch of text) {
+    if (/\s/.test(ch)) continue;
+    if (!hasGlyph(family, ch)) return false;
+  }
+  return true;
+}
+
+function availableFamilies(): Set<string> {
+  ensureFontsRegistered();
+  return new Set(GlobalFonts.families.map((f) => f.family));
+}
+
+/** Шрифт есть на машине и в нём действительно есть все буквы текста. */
+function usable(family: string, text: string): boolean {
+  if (!BUILTIN[family] && !availableFamilies().has(family)) return false;
+  return fontCovers(family, text);
+}
+
+/**
+ * Семейство, которым рисуется ВЕСЬ переданный текст (в сцене это все слова
+ * видео сразу — чтобы шрифт не прыгал между строками). Основное решение
+ * принимает общая с превью таблица покрытий (lib/scripts.ts), а глифы тут
+ * ещё и перепроверяются: на этой машине системного шрифта может не быть.
+ */
+export function familyForText(family: string, text: string): string {
+  const key = `${family}|${text}`;
+  const cached = familyCache.get(key);
+  if (cached !== undefined) return cached;
+
+  let out = resolveFamily(family, text);
+  if (!usable(out, text)) {
+    const found = fallbackChain(text).find((f) => f !== out && usable(f, text));
+    if (found) {
+      out = found;
+    } else if (!warned.has(key)) {
+      warned.add(key);
+      console.warn(
+        `[fonts] нет шрифта с глифами для «${text.slice(0, 40)}» (${scriptOf(text)}) — ` +
+          `останется «${family}», часть букв будет плашками`
+      );
+      out = family;
+    }
+  }
+  familyCache.set(key, out);
+  return out;
 }
 
 function closest(list: number[], weight: number): number {

@@ -1,10 +1,12 @@
 import { continueRender, delayRender, staticFile } from "remotion";
+import { FALLBACK_FAMILIES } from "../lib/scripts";
 import { loadFont as loadMontserrat } from "@remotion/google-fonts/Montserrat";
 import { loadFont as loadUnbounded } from "@remotion/google-fonts/Unbounded";
 import { loadFont as loadOswald } from "@remotion/google-fonts/Oswald";
 import { loadFont as loadJetBrains } from "@remotion/google-fonts/JetBrainsMono";
 import { loadFont as loadPlayfair } from "@remotion/google-fonts/PlayfairDisplay";
 import { loadFont as loadCaveat } from "@remotion/google-fonts/Caveat";
+import { loadFont as loadRubik } from "@remotion/google-fonts/Rubik";
 
 const montserrat = loadMontserrat("normal", {
   weights: ["500", "600", "700", "800", "900"],
@@ -33,6 +35,12 @@ loadPlayfair("italic", {
 const caveat = loadCaveat("normal", {
   weights: ["700"],
   subsets: ["latin", "cyrillic"],
+});
+// иврит: остальные наши шрифты его не содержат — Rubik и в списке шрифтов,
+// и автоматическим запасным для RTL-текста (см. lib/scripts.ts)
+const rubik = loadRubik("normal", {
+  weights: ["500", "700", "800", "900"],
+  subsets: ["latin", "cyrillic", "hebrew"],
 });
 
 // Локальные шрифты из public/fonts (их нет в Google Fonts либо нужен свой файл).
@@ -71,6 +79,7 @@ export const FONT_FAMILIES: Record<string, string> = {
   JetBrainsMono: jetbrains.fontFamily,
   PlayfairDisplay: playfair.fontFamily,
   Caveat: caveat.fontFamily,
+  Rubik: rubik.fontFamily,
 };
 
 /** Вбудовані шрифти для випадаючого списку в UI */
@@ -83,4 +92,18 @@ export const BUILTIN_FONTS = [
   "JetBrainsMono",
   "PlayfairDisplay",
   "Caveat",
+  "Rubik",
 ];
+
+/**
+ * CSS font-family с запасками под письменности, которых нет в наших шрифтах
+ * (иврит → Rubik, кана/кандзи и хангыль → системные). Браузер подставляет их
+ * по глифам сам; нативный рендер делает то же явно — lib/scripts.ts.
+ */
+export function fontStack(family: string): string {
+  const main = FONT_FAMILIES[family] ?? family;
+  const rest = FALLBACK_FAMILIES.map((f) => FONT_FAMILIES[f] ?? f).filter(
+    (f) => f !== main
+  );
+  return [main, ...rest].map((f) => `"${f}"`).join(", ");
+}

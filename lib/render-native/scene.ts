@@ -4,6 +4,7 @@
 import { createCanvas, type SKRSContext2D } from "@napi-rs/canvas";
 import { easeOutCubic, interpolate, spring } from "../anim";
 import { findActivePage, findActiveWordIndex, groupWordsIntoPages } from "../captions";
+import { allWordsText, isRtlWords } from "../scripts";
 import { resolveStyle } from "../styles";
 import {
   OVERLAY_FONT_FAMILY,
@@ -25,7 +26,7 @@ import type {
   Word,
 } from "../types";
 import { parseLinearGradient, parseTextShadow, type ParsedShadow } from "./cssparse";
-import { fontString } from "./fonts";
+import { familyForText, fontString } from "./fonts";
 
 export type SceneOptions = {
   words: Word[];
@@ -290,6 +291,12 @@ export function createScene(opts: SceneOptions): Scene {
   const pages = groupWordsIntoPages(opts.words, projectStyle.maxWordsPerPage);
   const pageIndex = new Map<CaptionPage, number>(pages.map((p, i) => [p, i]));
 
+  // Шрифт выбирается ОДИН РАЗ по всем словам видео: если выбранного не хватает
+  // на язык субтитров (иврит, кана, хангыль, деванагари, кириллица в DynaPuff),
+  // на запаску уходит всё видео целиком — иначе шрифт прыгал бы по строкам.
+  const captionsText = allWordsText(opts.words);
+  const familyFor = (family: string) => familyForText(family, captionsText);
+
   // страницы с сегментным стилем рисуются им; кэш по ключу стиля
   const ctxCache = new Map<string, StyleCtx>();
   function makeStyleCtx(style: CaptionStyle, key: string): StyleCtx {
@@ -301,7 +308,7 @@ export function createScene(opts: SceneOptions): Scene {
       fontSize,
       strokeWidth: style.strokeRatio > 0 ? Math.max(fontSize * style.strokeRatio, 1) : 0,
       letterSpacingPx: (style.letterSpacingEm ?? 0) * fontSize,
-      baseFont: fontString(style.fontFamily, style.fontWeight, fontSize, false),
+      baseFont: fontString(familyFor(style.fontFamily), style.fontWeight, fontSize, false),
       gradient: style.gradient ? parseLinearGradient(style.gradient) : null,
     };
     ctxCache.set(key, out);
@@ -385,6 +392,7 @@ export function createScene(opts: SceneOptions): Scene {
     if (cached) return cached;
 
     const { style, baseFont, fontSize, letterSpacingPx } = s;
+    const rtlPage = isRtlWords(page.words);
     const { ascent, descent } = fontMetrics(ctx, baseFont, fontSize);
     const lineH = fontSize * 1.25;
     const columnGap =
@@ -402,9 +410,11 @@ export function createScene(opts: SceneOptions): Scene {
 
     const flushRow = () => {
       if (rowWords.length === 0) return;
-      // центрируем строку: координаты относительно её центра
+      // центрируем строку: координаты относительно её центра.
+      // RTL — первое слово справа, дальше влево (порядок чтения).
+      const order = rtlPage ? [...rowWords].reverse() : rowWords;
       let x = -rowW / 2;
-      for (const lw of rowWords) {
+      for (const lw of order) {
         lw.x = x;
         x += lw.width + columnGap;
       }
@@ -459,7 +469,9 @@ export function createScene(opts: SceneOptions): Scene {
       const charBudget = (width * 0.9) / Math.max(text.length, 1) / 0.6;
       const size = Math.min(fontSize * variant.sizeMult, charBudget);
       const font = fontString(
-        variant.font ?? style.fontFamily,
+        // подмена решается по всему видео, не по слову: иначе в стопке
+        // design-слов шрифт скакал бы от строки к строке
+        familyFor(variant.font ?? style.fontFamily),
         variant.weight ?? style.fontWeight,
         size,
         variant.italic ?? false
@@ -750,7 +762,7 @@ export function createScene(opts: SceneOptions): Scene {
     if (disclaimerLines) return disclaimerLines;
     const d = disclaimer!;
     const size = Math.max(Math.round(width * d.sizeRatio), 8);
-    const font = fontString("Montserrat", 500, size, false);
+    const font = fontString(familyForText("Montserrat", d.text), 500, size, false);
     ctx.font = font;
     const maxW = width * 0.9;
     const lines: string[] = [];
@@ -774,7 +786,7 @@ export function createScene(opts: SceneOptions): Scene {
   function drawDisclaimer(ctx: SKRSContext2D) {
     if (!disclaimer) return;
     const size = Math.max(Math.round(width * disclaimer.sizeRatio), 8);
-    const font = fontString("Montserrat", 500, size, false);
+    const font = fontString(familyForText("Montserrat", disclaimer.text), 500, size, false);
     const lines = layoutDisclaimer(ctx);
     const lineH = size * 1.3;
     const { ascent, descent } = fontMetrics(ctx, font, size);
@@ -819,7 +831,12 @@ export function createScene(opts: SceneOptions): Scene {
     if (cached) return cached;
     const o = overlays[i];
     const size = Math.max(Math.round(width * o.sizeRatio), 8);
-    const font = fontString(OVERLAY_FONT_FAMILY, OVERLAY_FONT_WEIGHT, size, false);
+    const font = fontString(
+      familyForText(OVERLAY_FONT_FAMILY, o.text),
+      OVERLAY_FONT_WEIGHT,
+      size,
+      false
+    );
     const padX = size * OVERLAY_PAD_X_EM;
     const padY = size * OVERLAY_PAD_Y_EM;
     // как в DOM: box-sizing border-box, паддинги внутри max-width

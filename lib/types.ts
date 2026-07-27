@@ -232,7 +232,11 @@ export type Iteration = {
   id: string;
   /** порядковый номер → имя файла */
   num: number;
-  /** id клипов проекта в порядке выбора (legacy: все — дубли) */
+  /** hook (по умолчанию) = хук из клипов; translate = перевод видео (WaveSpeed) */
+  kind?: "hook" | "translate";
+  /** язык перевода (код из lib/languages.ts) для kind=translate */
+  language?: string;
+  /** id клипов проекта в порядке выбора (legacy: все — дубли); у translate пуст */
   clipIds: string[];
   /** клипы хука с режимом (приоритетнее clipIds) */
   hookClips?: HookClip[];

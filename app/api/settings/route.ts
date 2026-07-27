@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDeepgramKey, getSettings, saveSettings } from "@/lib/settings";
+import { getDeepgramKey, getSettings, getWavespeedKey, saveSettings } from "@/lib/settings";
 import { CAPTION_STYLES, sanitizeOverrides } from "@/lib/styles";
 import type { StyleOverrides } from "@/lib/types";
 
@@ -14,10 +14,14 @@ function mask(key: string | undefined): string | null {
 
 function payload() {
   const key = getDeepgramKey();
+  const wsKey = getWavespeedKey();
   const s = getSettings();
   return {
     hasDeepgramKey: Boolean(key),
     maskedKey: mask(key),
+    hasWavespeedKey: Boolean(wsKey),
+    maskedWavespeedKey: mask(wsKey),
+    cacheLimitGb: s.cacheLimitGb ?? 10,
     outputDir: s.outputDir ?? "",
     parallelRenders: s.parallelRenders ?? 3,
     encoder: s.encoder ?? "auto",
@@ -35,6 +39,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const body = (await req.json()) as {
     deepgramApiKey?: string;
+    wavespeedApiKey?: string;
+    cacheLimitGb?: number;
     outputDir?: string;
     parallelRenders?: number;
     encoder?: string;
@@ -46,6 +52,12 @@ export async function POST(req: NextRequest) {
   const patch: Partial<import("@/lib/settings").Settings> = {};
   if (typeof body.deepgramApiKey === "string") {
     patch.deepgramApiKey = body.deepgramApiKey.trim();
+  }
+  if (typeof body.wavespeedApiKey === "string") {
+    patch.wavespeedApiKey = body.wavespeedApiKey.trim();
+  }
+  if (typeof body.cacheLimitGb === "number") {
+    patch.cacheLimitGb = Math.min(Math.max(Math.round(body.cacheLimitGb), 1), 500);
   }
   if (typeof body.outputDir === "string") {
     patch.outputDir = body.outputDir.trim();

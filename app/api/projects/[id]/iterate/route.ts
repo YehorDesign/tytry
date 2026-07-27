@@ -3,6 +3,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { enqueueIteration } from "@/lib/jobs";
+import { translateLanguage } from "@/lib/languages";
 import { getClips } from "@/lib/montage";
 import { loadProject, updateProject } from "@/lib/store";
 import type { HookClip, Iteration } from "@/lib/types";
@@ -21,6 +22,8 @@ export async function POST(req: NextRequest, { params }: Params) {
   const body = (await req.json()) as {
     clipIds?: string[];
     clips?: HookClip[];
+    /** итерация-перевод: язык из lib/languages.ts (вместо clips) */
+    translate?: { language: string };
     /** снимок сдвига музыки для этой итерации, мс */
     musicOffsetMs?: number;
     /** false = создать черновик без запуска рендера */
@@ -36,6 +39,33 @@ export async function POST(req: NextRequest, { params }: Params) {
     const host = req.headers.get("host") ?? "127.0.0.1:3000";
     enqueueIteration(id, it.id, `http://${host}`);
     return NextResponse.json({ project: loadProject(id), iteration: it });
+  }
+
+  // ── итерация-перевод: язык вместо клипов ──
+  if (body.translate) {
+    if (!translateLanguage(body.translate.language)) {
+      return NextResponse.json({ error: "Unknown language" }, { status: 400 });
+    }
+    const render = body.render !== false;
+    const existing = project.iterations ?? [];
+    const iteration: Iteration = {
+      id: crypto.randomBytes(5).toString("hex"),
+      num: existing.reduce((m, i) => Math.max(m, i.num), 0) + 1,
+      kind: "translate",
+      language: body.translate.language,
+      clipIds: [],
+      musicOffsetMs:
+        typeof body.musicOffsetMs === "number" ? Math.round(body.musicOffsetMs) : undefined,
+      status: render ? "queued" : "draft",
+      progress: 0,
+      createdAt: new Date().toISOString(),
+    };
+    const updated = updateProject(id, { iterations: [...existing, iteration] });
+    if (render) {
+      const host = req.headers.get("host") ?? "127.0.0.1:3000";
+      enqueueIteration(id, iteration.id, `http://${host}`);
+    }
+    return NextResponse.json({ project: updated, iteration });
   }
 
   // новый формат {clips: [{id, move}]}; legacy {clipIds} = все дубли

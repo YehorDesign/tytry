@@ -1,12 +1,14 @@
 import fs from "node:fs";
 import { createClient } from "@deepgram/sdk";
+import { asrModelFor } from "./languages";
 import { getDeepgramKey } from "./settings";
 import type { Word } from "./types";
 
 /**
  * Транскрибация аудиофайла через Deepgram с word-level таймингами.
  * nova-2 поддерживает украинский, русский, английский и ещё ~30 языков,
- * а также автоопределение языка (detect_language).
+ * а также автоопределение языка (detect_language). Языки, которых в nova-2
+ * нет (иврит), размечаются nova-3 — модель берётся из lib/languages.ts.
  */
 export async function transcribeAudio(
   audioPath: string,
@@ -21,7 +23,7 @@ export async function transcribeAudio(
   const buffer = fs.readFileSync(audioPath);
 
   const options: Record<string, unknown> = {
-    model: "nova-2",
+    model: asrModelFor(language),
     smart_format: true,
     punctuate: true,
   };
