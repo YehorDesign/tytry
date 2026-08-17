@@ -31,19 +31,20 @@ export async function detectEncoder(): Promise<EncoderChoice> {
   return detected;
 }
 
+// качество финального энкода: визуально без потерь (файл тяжелее, но не «мыло»)
 function videoArgs(encoder: EncoderChoice): string[] {
   if (encoder === "nvenc") {
     return [
       "-c:v", "h264_nvenc",
       "-preset", "p4",
       "-rc:v", "vbr",
-      "-cq", "22",
+      "-cq", "16",
       "-b:v", "0",
       "-spatial-aq", "1",
       "-profile:v", "high",
     ];
   }
-  return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "19"];
+  return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16"];
 }
 
 export type CompositorOptions = {

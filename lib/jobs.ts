@@ -21,6 +21,7 @@ import { transcribeAudio } from "./deepgram";
 import { translateVideoFile, WAVESPEED_UPLOAD_LIMIT_MB } from "./wavespeed";
 import { translateLanguage } from "./languages";
 import { rmFileSync } from "./rmrf";
+import { sanitizeFileName } from "./filename";
 
 // корень приложения (в упакованном Electron задаётся через env)
 const APP_ROOT = process.env.TYTRY_APP_DIR || process.cwd();
@@ -546,25 +547,20 @@ async function renderProjectChrome(projectId: string, job: RenderJob, origin: st
 }
 
 function safeProjectName(project: Project): string {
-  return (
-    project.name.replace(/[<>:"/\\|?* -]/g, "_").trim().slice(0, 60) || project.id
-  );
+  return sanitizeFileName(project.name) || project.id;
 }
 
 /**
- * Папка видоса — как в батче: у каждого видео своя подпапка с его именем
- * внутри папки вывода (туда же падают итерации). У батч-проектов папка
- * уже задана в batchRef. Без папки вывода — workspace/renders (плоско).
+ * Папка видоса — ровно та, что выбрана юзером: подпапок на каждое видео
+ * НЕ делаем, всё (рендеры и итерации) падает в одну папку вывода.
+ * У батч-проектов папка уже задана в batchRef. Без папки вывода —
+ * workspace/renders.
  */
 function resolveVideoDir(project: Project): string {
   const root = project.outputRoot?.trim();
   const custom =
     // корень из «Рендер всех» — приоритетнее всего
-    (root ? path.join(root, safeProjectName(project)) : "") ||
-    project.batchRef?.outputDir ||
-    (getSettings().outputDir?.trim()
-      ? path.join(getSettings().outputDir!.trim(), safeProjectName(project))
-      : "");
+    root || project.batchRef?.outputDir || getSettings().outputDir?.trim() || "";
   if (custom) {
     try {
       fs.mkdirSync(custom, { recursive: true });
@@ -578,14 +574,18 @@ function resolveVideoDir(project: Project): string {
 
 function resolveOutputPath(project: Project): string {
   const dir = resolveVideoDir(project);
-  const safeName = safeProjectName(project);
-  // внутри своей папки суффикс не нужен; во внутренней плоской — оставляем
-  const base = dir === RENDERS_DIR ? `${safeName}_subtitled` : safeName;
-  let out = path.join(dir, `${base}.mp4`);
-  if (fs.existsSync(out)) {
-    out = path.join(dir, `${base}_${project.id}.mp4`);
+  const base = safeProjectName(project);
+  // повторный рендер того же проекта перезаписывает СВОЙ файл;
+  // занятое чужим файлом имя не трогаем — берём следующее свободное
+  const mine = project.renderFile ? path.resolve(project.renderFile) : "";
+  const free = (p: string) => !fs.existsSync(p) || path.resolve(p) === mine;
+  const first = path.join(dir, `${base}.mp4`);
+  if (free(first)) return first;
+  for (let i = 2; i < 100; i++) {
+    const alt = path.join(dir, `${base}_${i}.mp4`);
+    if (free(alt)) return alt;
   }
-  return out;
+  return path.join(dir, `${base}_${project.id}.mp4`);
 }
 
 export function videoSourcePath(project: Project): string {

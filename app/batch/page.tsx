@@ -241,7 +241,7 @@ export default function BatchPage() {
         endcardId: null,
         endcardDurationMs: 3000,
         cleanCopy: true,
-        maxSizeMb: 30,
+        maxSizeMb: 0,
       }
     );
     setPresetOpen(true);
@@ -927,7 +927,7 @@ export default function BatchPage() {
                   min={0}
                   max={2000}
                   style={{ width: 80 }}
-                  value={editPreset.maxSizeMb ?? 30}
+                  value={editPreset.maxSizeMb ?? 0}
                   onChange={(e) =>
                     setEditPreset({ ...editPreset, maxSizeMb: Number(e.target.value) || 0 })
                   }

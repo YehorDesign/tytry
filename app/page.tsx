@@ -8,6 +8,7 @@ import { PanelCard } from "@/components/PanelCard";
 import { StylePanel } from "@/components/StylePanel";
 import { Timeline } from "@/components/Timeline";
 import { formatTimestamp, groupWordsIntoPages } from "@/lib/captions";
+import { sanitizeFileName } from "@/lib/filename";
 import { STRINGS, getLocale, setLocale, type Locale } from "@/lib/i18n";
 import type { BatchPreset } from "@/lib/batch/types";
 import { buildIterationProject } from "@/lib/iterations";
@@ -635,7 +636,7 @@ export default function Home() {
     scheduleSave({ words: next, styleId, overrides });
   };
 
-  // имя проекта = имя файла рендера (<назва>_subtitled.mp4)
+  // имя проекта = имя файла рендера (<назва>.mp4)
   const handleNameChange = (name: string) => {
     setProjectName(name);
     // сразу обновляем карточку в списке, не дожидаясь поллинга
@@ -647,8 +648,7 @@ export default function Home() {
 
   // как resolveOutputPath на сервере: что реально попадёт в имя файла
   const renderFileNamePreview =
-    (projectName.replace(/[<>:"/\\|?* -]/g, "_").trim().slice(0, 60) ||
-      selected?.id) ?? "";
+    (sanitizeFileName(projectName) || selected?.id) ?? "";
 
   // ── стиль: без выделения правим проект, с выделением — только выбранные фразы ──
   const selectionActive = selectedWordIds.size > 0;
@@ -2090,7 +2090,7 @@ export default function Home() {
                 }}
               />
               <span className="hint render-name-hint">
-                → 📁 {renderFileNamePreview}\{renderFileNamePreview}.mp4
+                → 📁 {renderFileNamePreview}.mp4
               </span>
             </div>
           )}

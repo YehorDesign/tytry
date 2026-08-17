@@ -1,7 +1,12 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { CAPTION_STYLES, resolveStyle } from "@/lib/styles";
+import {
+  CAPTION_STYLES,
+  WORDS_SLIDER_MAX,
+  WORDS_UNLIMITED,
+  resolveStyle,
+} from "@/lib/styles";
 import { BUILTIN_FONTS } from "@/remotion/fonts";
 import type { Dict } from "@/lib/i18n";
 import type { StyleOverrides } from "@/lib/types";
@@ -247,12 +252,18 @@ export const StylePanel: React.FC<{
         <input
           type="range"
           min={1}
-          max={8}
+          max={WORDS_SLIDER_MAX}
           step={1}
-          value={resolved.maxWordsPerPage}
-          onChange={(e) => set({ maxWordsPerPage: Number(e.target.value) })}
+          value={Math.min(resolved.maxWordsPerPage, WORDS_SLIDER_MAX)}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            // крайнее правое деление = без ограничения
+            set({ maxWordsPerPage: v >= WORDS_SLIDER_MAX ? WORDS_UNLIMITED : v });
+          }}
         />
-        <span className="control-value">{resolved.maxWordsPerPage}</span>
+        <span className="control-value">
+          {resolved.maxWordsPerPage >= WORDS_SLIDER_MAX ? "∞" : resolved.maxWordsPerPage}
+        </span>
       </div>
 
       <div className="control-row">

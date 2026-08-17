@@ -1,4 +1,4 @@
-import { resolveStyle } from "./styles";
+import { WORDS_SLIDER_MAX, resolveStyle } from "./styles";
 import type { CaptionPage, Word, WordStyle } from "./types";
 
 const MAX_GAP_MS = 900; // пауза, после которой начинается новая страница
@@ -44,13 +44,22 @@ export function groupWordsIntoPages(
     if (!word.text.trim()) continue;
     if (current.length > 0) {
       const prev = current[current.length - 1];
+      const limit = maxWordsFor(current[0].style);
+      // ∞ слов на экране: лимит по длительности страницы и разрыв по концу
+      // предложения тут только мешают — режем страницу лишь по паузе.
+      // Промежуточные значения: чем больше слов просят, тем дольше живёт
+      // страница (до 8 слов — как было, 5 секунд).
+      const loose = limit > WORDS_SLIDER_MAX;
+      const durationCap = loose
+        ? Infinity
+        : MAX_PAGE_DURATION_MS * Math.max(1, limit / 8);
       const gap = word.startMs - prev.endMs;
       const pageDuration = word.endMs - current[0].startMs;
-      const endsSentence = /[.!?…]$/.test(prev.text.trim());
+      const endsSentence = !loose && /[.!?…]$/.test(prev.text.trim());
       if (
-        current.length >= maxWordsFor(current[0].style) ||
+        current.length >= limit ||
         gap > MAX_GAP_MS ||
-        pageDuration > MAX_PAGE_DURATION_MS ||
+        pageDuration > durationCap ||
         endsSentence ||
         wordStyleKey(word) !== wordStyleKey(current[0])
       ) {

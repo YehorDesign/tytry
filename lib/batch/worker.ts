@@ -24,6 +24,7 @@ import { renderProjectNative } from "../render-native/render";
 import { compressToSize } from "../compress";
 import { numericNameCompare } from "../montage";
 import { rmFileSync, rmrf } from "../rmrf";
+import { sanitizeFileName } from "../filename";
 import {
   computeClipTrims,
   shiftWordsByTrims,
@@ -225,9 +226,7 @@ function readTrims(wf: WordsFile, clipCount: number): SilenceTrim[] | null {
 }
 
 function safeFileName(name: string): string {
-  return (
-    name.replace(/[<>:"/\\|?* -]/g, "_").trim().slice(0, 80) || "video"
-  );
+  return sanitizeFileName(name) || "video";
 }
 
 /** Папка видоса: всё про один архив лежит вместе (финал, clean, итерации). */

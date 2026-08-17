@@ -1,5 +1,13 @@
 ﻿import type { CaptionStyle, StyleOverrides } from "./types";
 
+/**
+ * «Без лимита» слов на странице: страницу режут только паузы речи
+ * (см. lib/captions.ts). Верхняя позиция ползунка «Слів на екрані».
+ */
+export const WORDS_UNLIMITED = 999;
+/** Последнее деление ползунка = ∞; всё, что выше, хранится как WORDS_UNLIMITED */
+export const WORDS_SLIDER_MAX = 20;
+
 export const CAPTION_STYLES: CaptionStyle[] = [
   {
     id: "classic",
@@ -517,7 +525,10 @@ export function sanitizeOverrides(input: unknown): StyleOverrides {
   if (typeof src.textColor === "string") out.textColor = src.textColor;
   if (typeof src.highlightColor === "string") out.highlightColor = src.highlightColor;
   if (typeof src.maxWordsPerPage === "number" && Number.isFinite(src.maxWordsPerPage)) {
-    out.maxWordsPerPage = Math.min(Math.max(Math.round(src.maxWordsPerPage), 1), 12);
+    out.maxWordsPerPage = Math.min(
+      Math.max(Math.round(src.maxWordsPerPage), 1),
+      WORDS_UNLIMITED
+    );
   }
   if (typeof src.positionY === "number" && Number.isFinite(src.positionY)) {
     out.positionY = Math.min(Math.max(src.positionY, 0), 1);

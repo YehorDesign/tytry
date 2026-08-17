@@ -109,6 +109,6 @@ export function defaultPreset(): Omit<BatchPreset, "id" | "name" | "createdAt"> 
     endcardId: null,
     endcardDurationMs: 3000,
     cleanCopy: true,
-    maxSizeMb: 30,
+    maxSizeMb: 0, // без сжатия по умолчанию
   };
 }
