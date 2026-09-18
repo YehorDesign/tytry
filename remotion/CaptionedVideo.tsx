@@ -7,6 +7,8 @@ import {
   Img,
   OffthreadVideo,
   Sequence,
+  continueRender,
+  delayRender,
   interpolate,
   spring,
   useCurrentFrame,
@@ -37,6 +39,34 @@ import { allWordsText, isRtlWords, resolveFamily } from "../lib/scripts";
 import { resolveStyle } from "../lib/styles";
 import { fontStack } from "./fonts";
 
+// ── свои шрифты юзера ──
+// Нужны DOM-движку (chrome-рендер и превью Remotion Player): файл приезжает
+// ссылкой в пропсах, имя семейства — то же, под которым шрифт зарегистрирован
+// в нативном рендере. delayRender держит кадр, пока шрифт не загрузился,
+// иначе первый кадр уехал бы в системном фолбэке.
+const customFontsRequested = new Set<string>();
+
+function useCustomFonts(fonts: CaptionInputProps["customFonts"]) {
+  useMemo(() => {
+    if (!fonts?.length) return;
+    if (typeof document === "undefined" || typeof FontFace === "undefined") return;
+    for (const font of fonts) {
+      if (customFontsRequested.has(font.family)) continue;
+      customFontsRequested.add(font.family);
+      const handle = delayRender(`Loading font ${font.family}`);
+      new FontFace(font.family, `url("${font.url}")`, { weight: "100 900" })
+        .load()
+        .then((face) => {
+          document.fonts.add(face);
+        })
+        .catch(() => {
+          customFontsRequested.delete(font.family);
+        })
+        .then(() => continueRender(handle));
+    }
+  }, [fonts]);
+}
+
 export const CaptionedVideo: React.FC<CaptionInputProps> = ({
   videoSrc,
   words,
@@ -49,7 +79,9 @@ export const CaptionedVideo: React.FC<CaptionInputProps> = ({
   musicOffsetMs,
   disclaimer,
   overlays,
+  customFonts,
 }) => {
+  useCustomFonts(customFonts);
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const ms = (frame / fps) * 1000;
@@ -325,7 +357,7 @@ const CaptionOverlay: React.FC<{
     opacity: pageOpacity,
     padding: style.lineBackground ? `${fontSize * 0.22}px ${fontSize * 0.45}px` : 0,
     backgroundColor: style.lineBackground ?? "transparent",
-    borderRadius: style.lineBackground ? fontSize * 0.25 : 0,
+    borderRadius: style.lineBackground ? fontSize * (style.bgRadiusEm ?? 0.25) : 0,
   };
 
   return (

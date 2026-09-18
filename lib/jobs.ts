@@ -2,8 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { CaptionInputProps, Iteration, Project } from "./types";
+import { listCustomFonts } from "./fonts-custom";
 import {
-  AUDIO_DIR,
   MUSIC_DIR,
   RENDERS_DIR,
   UPLOADS_DIR,
@@ -13,12 +13,12 @@ import {
 } from "./store";
 import { getSettings, getWavespeedKey } from "./settings";
 import { renderProjectNative } from "./render-native/render";
-import { extractAudio, flattenTimeline, mixMusic, probeVideo } from "./ffmpeg";
+import { flattenTimeline, mixMusic, probeVideo } from "./ffmpeg";
 import { getClips, needsFlatten } from "./montage";
 import { buildIterationProject } from "./iterations";
 import { compressToSize, enforceSizeLimit } from "./compress";
-import { transcribeAudio } from "./deepgram";
-import { translateVideoFile, WAVESPEED_UPLOAD_LIMIT_MB } from "./wavespeed";
+import { WAVESPEED_UPLOAD_LIMIT_MB } from "./wavespeed";
+import { translateLongVideo, TRANSLATE_MAX_CHUNK_MS } from "./translate";
 import { translateLanguage } from "./languages";
 import { rmFileSync } from "./rmrf";
 import { sanitizeFileName } from "./filename";
@@ -284,9 +284,12 @@ function iterationOutputPath(project: Project, iteration: Iteration): string {
   );
 }
 
-// ── итерация-перевод: WaveSpeed (HeyGen) + новые субтитры на языке перевода ──
-// Пайплайн: чистая склейка без музыки → перевод → Deepgram на языке перевода →
-// музыка обратно (без перекодирования видео) → обычный рендер субтитров.
+// ── итерация-перевод: WaveSpeed (HeyGen), видео БЕЗ субтитров ──
+// Пайплайн: чистая склейка без музыки → перевод (длинное видео — частями,
+// см. lib/translate.ts) → музыка обратно (без перекодирования видео) → файл
+// в папку видоса. Субтитры НЕ вжигаются: распознавание переведённой речи
+// почти всегда хочется поправить, поэтому сабы делаются обычным путём —
+// готовый файл закидывается в ТИТРИ как новое видео.
 
 async function renderTranslateIteration(
   project: Project,
@@ -314,7 +317,6 @@ async function renderTranslateIteration(
 
   const cleanPath = path.join(RENDERS_DIR, `${projectId}_${iteration.id}_clean.mp4`);
   const mixedPath = path.join(RENDERS_DIR, `${projectId}_${iteration.id}_mix.mp4`);
-  const wavPath = path.join(AUDIO_DIR, `${projectId}_${iteration.id}.wav`);
   // переведённое видео живёт в uploads: повторный рендер итерации не платит
   // за перевод ещё раз (перевод — единственный платный шаг)
   const translatedName = `${projectId}_${iteration.id}_${lang.code}.mp4`;
@@ -353,9 +355,14 @@ async function renderTranslateIteration(
     }
     setP(0.04);
 
-    // лимит загрузки WaveSpeed: ужимаем с запасом (оригинал не трогаем)
+    // лимит загрузки WaveSpeed: ужимаем с запасом (оригинал не трогаем).
+    // длинное видео пойдёт частями — там каждая часть ужимается сама
     const limitBytes = (WAVESPEED_UPLOAD_LIMIT_MB - 5) * 1024 * 1024;
-    if (fs.statSync(sourceForTranslate).size > limitBytes) {
+    // длительность берём у РЕАЛЬНОГО файла: у монтажного проекта
+    // project.video.durationMs — это исходник, а не длина таймлайна
+    const sourceMs = (await probeVideo(sourceForTranslate)).durationMs;
+    const goesInOneRequest = sourceMs <= TRANSLATE_MAX_CHUNK_MS;
+    if (goesInOneRequest && fs.statSync(sourceForTranslate).size > limitBytes) {
       if (sourceForTranslate !== cleanPath) {
         fs.copyFileSync(sourceForTranslate, cleanPath);
         sourceForTranslate = cleanPath;
@@ -369,23 +376,28 @@ async function renderTranslateIteration(
     const cached =
       fs.existsSync(translatedPath) && fs.statSync(translatedPath).size > 0;
     if (!cached) {
-      await translateVideoFile({
+      await translateLongVideo({
         inputPath: sourceForTranslate,
         outPath: translatedPath,
         language: lang.code,
-        durationMs: project.video.durationMs,
+        // паузы между словами исходника = места, где можно резать на части
+        words: (project.words ?? []).filter((w) => !w.fromMusic),
+        partsDir: UPLOADS_DIR,
+        partsPrefix: `${projectId}_${iteration.id}_${lang.code}`,
+        tmpDir: RENDERS_DIR,
+        parallel: getSettings().translateParallel,
         onProgress: (p) => setP(0.05 + p * 0.6),
+        onParts: (done, total) =>
+          updateIteration(projectId, iteration.id, {
+            parts: total > 1 ? { done, total } : undefined,
+          }),
       });
     }
+    updateIteration(projectId, iteration.id, { parts: undefined });
     setP(0.65);
 
-    // ── 3. новые субтитры: Deepgram на языке перевода ──
-    await extractAudio(translatedPath, wavPath);
-    const words = await transcribeAudio(wavPath, lang.code);
-    setP(0.72);
-
-    // ── 4. музыка обратно (видео копируется без перекодирования) ──
-    let renderInput = translatedPath;
+    // ── 3. музыка обратно (видео копируется без перекодирования) ──
+    let resultPath = translatedPath;
     const baseMusicOffset = project.music?.offsetMs ?? 0;
     const iterMusicOffset = iteration.musicOffsetMs ?? baseMusicOffset;
     if (project.music) {
@@ -396,51 +408,20 @@ async function renderTranslateIteration(
         offsetMs: iterMusicOffset,
         outPath: mixedPath,
       });
-      renderInput = mixedPath;
+      resultPath = mixedPath;
     }
-    // слова из музыки остаются: трек тот же, только сдвиг итерации
-    const musicWords = (project.words ?? [])
-      .filter((w) => w.fromMusic)
-      .map((w) => ({
-        ...w,
-        startMs: w.startMs - baseMusicOffset + iterMusicOffset,
-        endMs: w.endMs - baseMusicOffset + iterMusicOffset,
-      }));
-    setP(0.75);
+    setP(0.9);
 
-    // ── 5. рендер субтитров по переведённому видео стилем проекта ──
-    // HeyGen может слегка изменить длительность/размер — берём реальные
-    const probe = await probeVideo(renderInput);
-    const variant: Project = {
-      ...project,
-      id: `${projectId}-${iteration.id}`,
-      name: `${project.name}_${lang.code}`,
-      clips: null,
-      music: null,
-      words: [...words, ...musicWords].sort((a, b) => a.startMs - b.startMs),
-      video: {
-        ...project.video,
-        fileName: translatedName,
-        width: probe.width,
-        height: probe.height,
-        fps: probe.fps,
-        durationMs: probe.durationMs,
-      },
-    };
-    if (!variant.words || variant.words.length === 0) {
-      throw new Error("Deepgram found no speech in the translated video");
-    }
-
+    // ── 4. отдаём переведённое видео БЕЗ СУБТИТРОВ ──
+    // субтитры на языке перевода почти всегда хочется поправить руками,
+    // поэтому вжигать их сразу нельзя: файл кладём как есть, а сабы юзер
+    // делает обычным путём — закинув этот файл в ТИТРИ как новое видео
     const outputLocation = path.join(
       resolveVideoDir(project),
       `${safeProjectName(project)}_${lang.code}.mp4`
     );
-    await renderProjectNative(variant, {
-      inputPath: renderInput,
-      outputPath: outputLocation,
-      encoder: getSettings().encoder ?? "auto",
-      onProgress: (p) => setP(0.75 + p * 0.25),
-    });
+    fs.copyFileSync(resultPath, outputLocation);
+    setP(0.98);
 
     const maxMb = project.batchRef?.maxSizeMb ?? getSettings().maxSizeMb ?? 0;
     await compressToSize(outputLocation, maxMb);
@@ -453,7 +434,6 @@ async function renderTranslateIteration(
   } finally {
     rmFileSync(cleanPath);
     rmFileSync(mixedPath);
-    rmFileSync(wavPath);
   }
 }
 
@@ -510,6 +490,11 @@ async function renderProjectChrome(projectId: string, job: RenderJob, origin: st
     durationMs: project.video.durationMs,
     disclaimer: project.disclaimer,
     overlays: project.overlays,
+    // свои шрифты юзера: Chrome тянет их с локального сервера по ссылке
+    customFonts: listCustomFonts().map((f) => ({
+      family: f.family,
+      url: `${origin}/api/fonts/file/${f.id}`,
+    })),
   };
 
   const composition = await selectComposition({

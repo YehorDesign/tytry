@@ -15,6 +15,8 @@ export type Settings = {
   outputDir?: string;
   /** сколько видео рендерить одновременно (1–4, по умолчанию 3) */
   parallelRenders?: number;
+  /** сколько частей длинного видео переводить одновременно (1–6, по умолчанию 3) */
+  translateParallel?: number;
   /** видеокодек: auto = NVENC если доступен, иначе CPU */
   encoder?: "auto" | "nvenc" | "cpu";
   /** native = быстрый движок без Chrome; chrome = старый Remotion-рендер */

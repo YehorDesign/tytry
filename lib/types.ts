@@ -81,6 +81,8 @@ export type CaptionStyle = {
   mode: CaptionMode;
   /** плашка за всей строкой */
   lineBackground: string | null;
+  /** радиус скругления плашки строки в em (по умолчанию 0.25) */
+  bgRadiusEm?: number;
   strokeRatio: number; // обводка как доля размера шрифта (0 = нет)
   strokeColor: string;
   shadow: string | null;
@@ -245,6 +247,8 @@ export type Iteration = {
   /** draft = добавлена, но рендер ещё не запускали */
   status: "draft" | "queued" | "rendering" | "done" | "error";
   progress: number; // 0..1
+  /** перевод по частям (видео длиннее лимита HeyGen): сколько частей готово */
+  parts?: { done: number; total: number };
   /** абсолютный путь готового файла */
   file?: string;
   error?: string;
@@ -324,4 +328,10 @@ export type CaptionInputProps = {
   musicOffsetMs?: number;
   disclaimer?: Disclaimer | null;
   overlays?: TextOverlay[] | null;
+  /**
+   * Свои шрифты юзера (workspace/fonts) для DOM-движка: chrome-рендер грузит
+   * их по http-ссылке локального сервера. Нативный рендер шрифты берёт с диска
+   * сам, а превью — через lib/custom-fonts-client.ts.
+   */
+  customFonts?: { family: string; url: string }[] | null;
 };

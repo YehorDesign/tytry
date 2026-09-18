@@ -542,7 +542,7 @@ export function createScene(opts: SceneOptions): Scene {
         -totalH / 2,
         layout.contentW + 2 * padH,
         totalH,
-        fontSize * 0.25
+        fontSize * (style.bgRadiusEm ?? 0.25)
       );
       ctx.fill();
     }

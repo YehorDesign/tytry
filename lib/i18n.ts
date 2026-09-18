@@ -47,6 +47,30 @@ const en = {
   font: "Font",
   builtinFonts: "Built-in",
   systemFonts: "System",
+  myFonts: "My fonts",
+  addFontHint: "Add your own font file (.ttf / .otf). It is copied into the app and used both in preview and in the render.",
+
+  // custom fonts (settings)
+  fontsSection: "My fonts",
+  fontsHint:
+    "Your own .ttf / .otf files. Fonts installed in the system are already in the list — upload a file only if the font is not installed.",
+  addFont: "+ Add font",
+  fontsEmpty: "No uploaded fonts yet.",
+  fontDelete: "Delete font",
+  fontDeleteConfirm: (family: string) =>
+    `Delete the font “${family}”? Videos that use it will fall back to another font.`,
+
+  // «Render all» dialog
+  renderAllTitle: "Render all videos",
+  renderAllCount: (n: number) => `${n} video(s) ready to render`,
+  renderAllFolder: "Save to folder",
+  renderAllFolderRequired: "Choose a folder for the finished files.",
+  renderAllRemember: "Remember as the default output folder",
+  renderAllIterations: "Also re-render hook iterations",
+  renderAllIterationsHint:
+    "Translation iterations are never re-rendered: their files are ready and a repeat run costs money.",
+  renderAllStart: "Render",
+  renderAllFailed: (list: string) => `Could not start:\n\n${list}`,
   size: "Size",
   position: "Position",
   wordsPerPage: "Words on screen",
@@ -242,7 +266,7 @@ const en = {
   iterCancel: "Cancel",
   iterDraft: "draft",
   iterRenderOne: "Render this iteration",
-  iterRetry: "Retry — the paid translation is cached, only the render repeats",
+  iterRetry: "Retry — the paid translation is cached, parts already done are not paid for twice",
   iterRenderDrafts: (n: number) => `🎬 Render iterations (${n})`,
   iterEmpty: "Each iteration duplicates the picked clips as a hook at the start and renders a separate file into the video folder.",
   iterDeleteConfirm: "Remove this iteration from the list? The rendered file is kept.",
@@ -254,13 +278,17 @@ const en = {
     n > 1 ? `➕ Add ${n} translations` : n === 1 ? "➕ Add translation" : "➕ Pick a language",
   iterTranslateClear: "Clear selection",
   iterTranslateHint:
-    "HeyGen re-dubs the speech with lip-sync via WaveSpeed (≈$2.3 per minute of video), then subtitles are re-transcribed in the new language automatically.",
+    "HeyGen re-dubs the speech with lip-sync via WaveSpeed (≈$2.3 per minute of video). The result is saved WITHOUT subtitles — drop that file into TYTRY as a new video to caption it. Video over 2 min is cut at speech pauses and translated in parallel parts.",
   iterTranslateNoKey: "Add a WaveSpeed key in Settings (⚙) first.",
+  iterParts: "Video is longer than the 120 s translation limit — it is translated in parts (cut at speech pauses) and stitched back together.",
 
   // wavespeed
   wavespeedKey: "WaveSpeed API key (video translation)",
   wavespeedKeyMissing: "No key — video translation unavailable",
   wavespeedHintPrefix: "Get a key at",
+  translateParallel: "Parts translated at once",
+  translateParallelHint:
+    "Video longer than 120 s (the HeyGen limit) is cut at speech pauses and the parts are translated in parallel. More at once = faster, but heavier on the API.",
 
   // cache
   cacheTitle: "Cache",
@@ -385,6 +413,30 @@ const uk: Dict = {
   font: "Шрифт",
   builtinFonts: "Вбудовані",
   systemFonts: "Системні",
+  myFonts: "Мої шрифти",
+  addFontHint: "Додати свій файл шрифту (.ttf / .otf). Він копіюється в застосунок і працює і в превʼю, і в рендері.",
+
+  // свої шрифти (налаштування)
+  fontsSection: "Мої шрифти",
+  fontsHint:
+    "Свої файли .ttf / .otf. Шрифти, встановлені в системі, вже є у списку — файл потрібен лише тоді, коли шрифт не встановлений.",
+  addFont: "+ Додати шрифт",
+  fontsEmpty: "Завантажених шрифтів ще немає.",
+  fontDelete: "Видалити шрифт",
+  fontDeleteConfirm: (family: string) =>
+    `Видалити шрифт «${family}»? Відео, де він стоїть, намалюються іншим шрифтом.`,
+
+  // діалог «Рендер усіх»
+  renderAllTitle: "Рендер усіх відео",
+  renderAllCount: (n: number) => `Готових до рендеру: ${n}`,
+  renderAllFolder: "Зберегти в папку",
+  renderAllFolderRequired: "Виберіть папку для готових файлів.",
+  renderAllRemember: "Запамʼятати як папку за замовчуванням",
+  renderAllIterations: "Перерендерити також ітерації-хуки",
+  renderAllIterationsHint:
+    "Ітерації-переклади не перерендеруються: їхні файли вже готові, а повторний прогін коштує грошей.",
+  renderAllStart: "Рендерити",
+  renderAllFailed: (list: string) => `Не вдалося запустити:\n\n${list}`,
   size: "Розмір",
   position: "Позиція",
   wordsPerPage: "Слів на екрані",
@@ -562,7 +614,7 @@ const uk: Dict = {
   iterCancel: "Скасувати",
   iterDraft: "чернетка",
   iterRenderOne: "Рендерити цю ітерацію",
-  iterRetry: "Спробувати ще раз — переклад кешується, платити вдруге не треба",
+  iterRetry: "Спробувати ще раз — переклад кешується, за готові частини платити вдруге не треба",
   iterRenderDrafts: (n: number) => `🎬 Рендер ітерацій (${n})`,
   iterEmpty: "Кожна ітерація дублює обрані кліпи як хук на початку і рендерить окремий файл у папку відео.",
   iterDeleteConfirm: "Прибрати цю ітерацію зі списку? Готовий файл залишиться.",
@@ -574,13 +626,17 @@ const uk: Dict = {
     n > 1 ? `➕ Додати ${n} переклади` : n === 1 ? "➕ Додати переклад" : "➕ Обери мову",
   iterTranslateClear: "Зняти відмітки",
   iterTranslateHint:
-    "HeyGen передубльовує мову з ліпсинком через WaveSpeed (≈$2.3 за хвилину відео), потім субтитри автоматично розпізнаються заново новою мовою.",
+    "HeyGen передубльовує мову з ліпсинком через WaveSpeed (≈$2.3 за хвилину відео). Готовий файл — БЕЗ субтитрів: щоб зробити сабы, закинь його в ТИТРІ як нове відео. Відео довше 2 хв ріжеться на паузах між словами і перекладається частинами паралельно.",
   iterTranslateNoKey: "Спершу додай ключ WaveSpeed у налаштуваннях (⚙).",
+  iterParts: "Відео довше ліміту перекладу (120 с) — перекладається частинами (ріжеться на паузах між словами) і склеюється назад.",
 
   // wavespeed
   wavespeedKey: "Ключ WaveSpeed API (переклад відео)",
   wavespeedKeyMissing: "Ключа немає — переклад відео недоступний",
   wavespeedHintPrefix: "Ключ можна взяти на",
+  translateParallel: "Частин одночасно",
+  translateParallelHint:
+    "Відео довше 120 с (ліміт HeyGen) ріжеться на паузах між словами, і частини перекладаються паралельно. Більше — швидше, але більше навантаження на API.",
 
   // cache
   cacheTitle: "Кеш",

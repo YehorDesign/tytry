@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
 import { fallbackChain, resolveFamily, scriptOf } from "../scripts";
+import { CUSTOM_FONTS_DIR, fontPath, listCustomFonts } from "../fonts-custom";
 
 const APP_ROOT = process.env.TYTRY_APP_DIR || process.cwd();
 const FONTS_DIR = path.join(APP_ROOT, "fonts");
@@ -36,6 +37,7 @@ function registerFirst(baseName: string, alias: string) {
 }
 
 export function ensureFontsRegistered() {
+  ensureCustomRegistered();
   if (registered) return;
   registered = true;
   for (const [family, { weights, italicWeights }] of Object.entries(BUILTIN)) {
@@ -46,6 +48,40 @@ export function ensureFontsRegistered() {
       registerFirst(`${family}-${w}i`, `${family}-${w}i`);
     }
   }
+}
+
+// ── свои шрифты юзера (workspace/fonts) ──
+// Файл регистрируется под именем своего семейства — тем же, что стоит в
+// overrides.fontFamily и что грузит превью через FontFace. Индекс перечитываем
+// по mtime: шрифт, добавленный без перезапуска, подхватится следующим рендером.
+
+const customFamilies = new Set<string>();
+let customStamp = "";
+
+function ensureCustomRegistered() {
+  let stamp: string;
+  try {
+    stamp = String(fs.statSync(path.join(CUSTOM_FONTS_DIR, "index.json")).mtimeMs);
+  } catch {
+    stamp = "none";
+  }
+  if (stamp === customStamp) return;
+  customStamp = stamp;
+  for (const font of listCustomFonts()) {
+    if (customFamilies.has(font.family)) continue;
+    try {
+      GlobalFonts.registerFromPath(fontPath(font), font.family);
+      customFamilies.add(font.family);
+    } catch (err) {
+      console.warn(`[fonts] не удалось зарегистрировать «${font.family}»: ${err}`);
+    }
+  }
+}
+
+/** Это загруженный юзером шрифт (а не встроенный/системный)? */
+export function isCustomFamily(family: string): boolean {
+  ensureCustomRegistered();
+  return customFamilies.has(family);
 }
 
 // ── подмена шрифта по реальному наличию глифов ──
@@ -155,6 +191,11 @@ export function fontString(
   sizePx: number,
   italic: boolean
 ): string {
+  // свой шрифт юзера — один файл на семейство: вес не запрашиваем, иначе
+  // skia может дорисовать искусственный жир, которого нет в превью
+  if (isCustomFamily(family)) {
+    return `${italic ? "italic " : ""}${sizePx}px "${family}"`;
+  }
   const builtin = BUILTIN[family];
   if (builtin) {
     const pool = italic && builtin.italicWeights ? builtin.italicWeights : builtin.weights;

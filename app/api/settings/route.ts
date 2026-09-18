@@ -24,6 +24,7 @@ function payload() {
     cacheLimitGb: s.cacheLimitGb ?? 10,
     outputDir: s.outputDir ?? "",
     parallelRenders: s.parallelRenders ?? 3,
+    translateParallel: s.translateParallel ?? 3,
     encoder: s.encoder ?? "auto",
     renderEngine: s.renderEngine ?? "native",
     maxSizeMb: s.maxSizeMb ?? 0,
@@ -43,6 +44,7 @@ export async function POST(req: NextRequest) {
     cacheLimitGb?: number;
     outputDir?: string;
     parallelRenders?: number;
+    translateParallel?: number;
     encoder?: string;
     renderEngine?: string;
     maxSizeMb?: number;
@@ -64,6 +66,9 @@ export async function POST(req: NextRequest) {
   }
   if (typeof body.parallelRenders === "number") {
     patch.parallelRenders = Math.min(Math.max(Math.round(body.parallelRenders), 1), 4);
+  }
+  if (typeof body.translateParallel === "number") {
+    patch.translateParallel = Math.min(Math.max(Math.round(body.translateParallel), 1), 6);
   }
   if (body.encoder === "auto" || body.encoder === "nvenc" || body.encoder === "cpu") {
     patch.encoder = body.encoder;

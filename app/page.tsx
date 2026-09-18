@@ -8,6 +8,7 @@ import { PanelCard } from "@/components/PanelCard";
 import { StylePanel } from "@/components/StylePanel";
 import { Timeline } from "@/components/Timeline";
 import { formatTimestamp, groupWordsIntoPages } from "@/lib/captions";
+import { type CustomFontInfo, fetchFonts } from "@/lib/custom-fonts-client";
 import { sanitizeFileName } from "@/lib/filename";
 import { STRINGS, getLocale, setLocale, type Locale } from "@/lib/i18n";
 import type { BatchPreset } from "@/lib/batch/types";
@@ -76,6 +77,20 @@ export default function Home() {
   const [hasWsKey, setHasWsKey] = useState<boolean | null>(null);
   const [maskedWsKey, setMaskedWsKey] = useState<string | null>(null);
   const [wsKeyInput, setWsKeyInput] = useState("");
+  const [translateParallel, setTranslateParallel] = useState(3);
+
+  // свои шрифты (список в настройках)
+  const [customFonts, setCustomFonts] = useState<CustomFontInfo[]>([]);
+  const fontInputRef = useRef<HTMLInputElement>(null);
+  const [fontUploading, setFontUploading] = useState(false);
+
+  // диалог «Рендер усіх»: куда рендерить
+  const [renderAllOpen, setRenderAllOpen] = useState(false);
+  const [renderAllDir, setRenderAllDir] = useState("");
+  const [renderAllRemember, setRenderAllRemember] = useState(true);
+  const [renderAllIters, setRenderAllIters] = useState(true);
+  const [renderAllBusy, setRenderAllBusy] = useState(false);
+  const [renderAllError, setRenderAllError] = useState<string | null>(null);
 
   // кэш: занято место / лимит / сообщение после чистки
   const [cacheBytes, setCacheBytes] = useState<number | null>(null);
@@ -379,6 +394,7 @@ export default function Home() {
         cacheLimitGb?: number;
         outputDir: string;
         parallelRenders?: number;
+        translateParallel?: number;
         encoder?: string;
         renderEngine?: string;
         maxSizeMb?: number;
@@ -391,6 +407,7 @@ export default function Home() {
       setCacheLimitGb(data.cacheLimitGb ?? 10);
       setOutputDir(data.outputDir);
       setParallelRenders(data.parallelRenders ?? 3);
+      setTranslateParallel(data.translateParallel ?? 3);
       setEncoder(data.encoder ?? "auto");
       setRenderEngine(data.renderEngine ?? "native");
       setMaxSizeMb(data.maxSizeMb ?? 0);
@@ -410,6 +427,7 @@ export default function Home() {
       const body: Record<string, string | number> = {
         outputDir,
         parallelRenders,
+        translateParallel,
         encoder,
         renderEngine,
         maxSizeMb,
@@ -434,6 +452,45 @@ export default function Home() {
   const browseFolder = async () => {
     const picked = await window.titryNative?.pickFolder();
     if (picked) setOutputDir(picked);
+  };
+
+  // ── свои шрифты ──
+  // fetchFonts попутно грузит FontFace в документ, поэтому превью видит
+  // загруженные шрифты сразу, не дожидаясь открытия панели стиля.
+  const refreshFonts = useCallback(() => {
+    fetchFonts()
+      .then(({ custom }) => setCustomFonts(custom))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshFonts();
+  }, [refreshFonts]);
+
+  const uploadFonts = async (files: FileList) => {
+    setFontUploading(true);
+    try {
+      const form = new FormData();
+      for (const file of Array.from(files)) form.append("files", file);
+      const res = await fetch("/api/fonts", { method: "POST", body: form });
+      const data = (await res.json()) as {
+        errors?: { name: string; error: string }[];
+        error?: string;
+      };
+      refreshFonts();
+      if (data.error) alert(data.error);
+      else if (data.errors?.length) {
+        alert(data.errors.map((e) => `${e.name}: ${e.error}`).join("\n"));
+      }
+    } finally {
+      setFontUploading(false);
+    }
+  };
+
+  const deleteFont = async (font: CustomFontInfo) => {
+    if (!confirm(t.fontDeleteConfirm(font.family))) return;
+    await fetch(`/api/fonts?id=${encodeURIComponent(font.id)}`, { method: "DELETE" });
+    refreshFonts();
   };
 
   // ── кэш: полосочка в топбаре, чистка, увеличение лимита ──
@@ -1586,28 +1643,77 @@ export default function Home() {
     await refresh();
   };
 
-  // «Рендер всех»: спрашиваем корневую папку, туда — все видео и их итерации,
-  // сгруппированные по подпапкам с именем проекта
-  const renderAll = async () => {
-    const ready = projects.filter(
-      (p) =>
-        (p.status === "ready" || p.status === "done") && p.words?.length && !p.archived
-    );
-    if (ready.length === 0) return;
-    let outputRoot: string | undefined;
-    if (typeof window !== "undefined" && window.titryNative) {
-      const picked = await window.titryNative.pickFolder();
-      if (!picked) return; // отмена диалога = ничего не рендерим
-      outputRoot = picked;
+  // ── «Рендер всех» ──
+  // Папку спрашиваем СВОИМ диалогом, а не нативным попапом: нативный рисует
+  // главный процесс Electron, и пока он занят рендером, попап может не
+  // открыться вообще. В диалоге можно и вписать путь руками.
+  const renderableProjects = projects.filter(
+    (p) => (p.status === "ready" || p.status === "done") && p.words?.length && !p.archived
+  );
+
+  const renderAll = () => {
+    if (renderableProjects.length === 0) return;
+    setRenderAllDir(outputDir || "");
+    setRenderAllError(null);
+    setRenderAllOpen(true);
+  };
+
+  const pickRenderAllDir = async () => {
+    const picked = await window.titryNative?.pickFolder();
+    if (picked) {
+      setRenderAllDir(picked);
+      setRenderAllError(null);
     }
-    for (const p of ready) {
-      await fetch("/api/render", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: p.id, outputRoot, withIterations: true }),
-      }).catch(() => {});
+  };
+
+  const startRenderAll = async () => {
+    const outputRoot = renderAllDir.trim();
+    if (!outputRoot) {
+      setRenderAllError(t.renderAllFolderRequired);
+      return;
     }
-    await refresh();
+    setRenderAllBusy(true);
+    setRenderAllError(null);
+    const failures: string[] = [];
+    try {
+      for (const p of renderableProjects) {
+        try {
+          const res = await fetch("/api/render", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: p.id,
+              outputRoot,
+              withIterations: renderAllIters,
+            }),
+          });
+          if (!res.ok) {
+            const data = (await res.json().catch(() => ({}))) as { error?: string };
+            failures.push(`${p.name}: ${data.error ?? `HTTP ${res.status}`}`);
+          }
+        } catch (err) {
+          failures.push(`${p.name}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      if (renderAllRemember && outputRoot !== outputDir) {
+        await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ outputDir: outputRoot }),
+        }).catch(() => {});
+        setOutputDir(outputRoot);
+      }
+      await refresh();
+      // все видео упали на старте — диалог оставляем открытым с причиной
+      if (failures.length === renderableProjects.length) {
+        setRenderAllError(failures.join("\n"));
+        return;
+      }
+      setRenderAllOpen(false);
+      if (failures.length > 0) alert(t.renderAllFailed(failures.join("\n")));
+    } finally {
+      setRenderAllBusy(false);
+    }
   };
 
   const removeProject = async (id: string, e?: React.MouseEvent) => {
@@ -1667,9 +1773,7 @@ export default function Home() {
     [pages, selectedWordIds]
   );
 
-  const renderableCount = projects.filter(
-    (p) => (p.status === "ready" || p.status === "done") && p.words?.length && !p.archived
-  ).length;
+  const renderableCount = renderableProjects.length;
 
   return (
     <div
@@ -1984,10 +2088,11 @@ export default function Home() {
                         <span className="iter-sub-meta">{t.iterDraft}</span>
                       )}
                       {(it.status === "queued" || it.status === "rendering") && (
-                        <span className="iter-sub-meta">
+                        <span className="iter-sub-meta" title={it.parts ? t.iterParts : undefined}>
                           {it.status === "queued"
                             ? t.batchStatusQueued
                             : `${Math.round(it.progress * 100)}%`}
+                          {it.parts ? ` · ${it.parts.done}/${it.parts.total}` : ""}
                         </span>
                       )}
                       {it.status === "error" && (
@@ -2529,10 +2634,11 @@ export default function Home() {
                                   style={{ width: `${Math.round(it.progress * 100)}%` }}
                                 />
                               </div>
-                              <span className="hint">
+                              <span className="hint" title={it.parts ? t.iterParts : undefined}>
                                 {it.status === "queued"
                                   ? t.batchStatusQueued
                                   : `${Math.round(it.progress * 100)}%`}
+                                {it.parts ? ` · ${it.parts.done}/${it.parts.total}` : ""}
                               </span>
                             </>
                           )}
@@ -3276,6 +3382,95 @@ export default function Home() {
         </div>
       )}
 
+      {/* ───── «Рендер усіх»: куда рендерить ───── */}
+      {renderAllOpen && (
+        <div
+          className="modal-overlay"
+          onClick={() => !renderAllBusy && setRenderAllOpen(false)}
+        >
+          <div
+            className="modal fade-in"
+            style={{ maxWidth: 520 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-title">{t.renderAllTitle}</div>
+            <p className="hint">{t.renderAllCount(renderableCount)}</p>
+
+            <div>
+              <div className="section-label">{t.renderAllFolder}</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  className="text-input"
+                  type="text"
+                  placeholder={t.outputFolderPlaceholder}
+                  value={renderAllDir}
+                  onChange={(e) => {
+                    setRenderAllDir(e.target.value);
+                    setRenderAllError(null);
+                  }}
+                />
+                {typeof window !== "undefined" && window.titryNative && (
+                  <button className="btn" onClick={pickRenderAllDir}>
+                    {t.browse}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <label
+              className="hint"
+              style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
+            >
+              <input
+                type="checkbox"
+                checked={renderAllRemember}
+                onChange={(e) => setRenderAllRemember(e.target.checked)}
+              />
+              {t.renderAllRemember}
+            </label>
+
+            <label
+              className="hint"
+              style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
+            >
+              <input
+                type="checkbox"
+                checked={renderAllIters}
+                onChange={(e) => setRenderAllIters(e.target.checked)}
+              />
+              {t.renderAllIterations}
+            </label>
+            <p className="hint">{t.renderAllIterationsHint}</p>
+
+            {renderAllError && (
+              <p
+                className="hint"
+                style={{ color: "var(--danger)", whiteSpace: "pre-wrap" }}
+              >
+                {renderAllError}
+              </p>
+            )}
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                className="btn"
+                onClick={() => setRenderAllOpen(false)}
+                disabled={renderAllBusy}
+              >
+                {t.close}
+              </button>
+              <button
+                className="btn btn-accent"
+                onClick={startRenderAll}
+                disabled={renderAllBusy}
+              >
+                {renderAllBusy ? "…" : t.renderAllStart}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ───── настройки ───── */}
       {settingsOpen && (
         <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
@@ -3343,6 +3538,76 @@ export default function Home() {
                   wavespeed.ai
                 </a>
               </p>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+                <span className="hint" style={{ flex: 1 }}>{t.translateParallel}</span>
+                <select
+                  className="select"
+                  value={translateParallel}
+                  onChange={(e) => setTranslateParallel(Number(e.target.value))}
+                >
+                  {[1, 2, 3, 4, 5, 6].map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
+              <p className="hint" style={{ marginTop: 6 }}>{t.translateParallelHint}</p>
+            </div>
+
+            <div>
+              <div className="section-label">{t.fontsSection}</div>
+              <p className="hint" style={{ marginBottom: 8 }}>{t.fontsHint}</p>
+              {customFonts.length === 0 ? (
+                <p className="hint">{t.fontsEmpty}</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {customFonts.map((f) => (
+                    <div
+                      key={f.id}
+                      style={{ display: "flex", gap: 8, alignItems: "center" }}
+                    >
+                      <span
+                        style={{
+                          flex: 1,
+                          fontFamily: `"${f.family}", sans-serif`,
+                          fontSize: 16,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={f.originalName}
+                      >
+                        {f.family}
+                      </span>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => deleteFont(f)}
+                        title={t.fontDelete}
+                      >
+                        🗑
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                className="btn btn-sm"
+                style={{ marginTop: 8 }}
+                onClick={() => fontInputRef.current?.click()}
+                disabled={fontUploading}
+              >
+                {fontUploading ? t.uploading : t.addFont}
+              </button>
+              <input
+                ref={fontInputRef}
+                type="file"
+                accept=".ttf,.otf,.ttc,font/ttf,font/otf"
+                multiple
+                hidden
+                onChange={(e) => {
+                  if (e.target.files?.length) void uploadFonts(e.target.files);
+                  e.target.value = "";
+                }}
+              />
             </div>
 
             <div>

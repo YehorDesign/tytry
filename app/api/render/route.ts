@@ -1,5 +1,6 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs";
+import path from "node:path";
 import { enqueueIteration, enqueueRender, getJob } from "@/lib/jobs";
 import { loadProject, updateIteration, updateProject } from "@/lib/store";
 
@@ -9,9 +10,9 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const { id, outputRoot, withIterations } = (await req.json()) as {
     id: string;
-    /** корневая папка «Рендер всех»: видео + итерации → <root>/<имя>/ */
+    /** папка из диалога «Рендер всех»: туда лягут видео и их итерации */
     outputRoot?: string;
-    /** перерендерить и все итерации проекта */
+    /** перерендерить и итерации-хуки проекта (переводы не трогаем) */
     withIterations?: boolean;
   };
   const project = loadProject(id);
@@ -24,10 +25,17 @@ export async function POST(req: NextRequest) {
   }
   if (typeof outputRoot === "string" && outputRoot.trim()) {
     const root = outputRoot.trim();
+    // mkdir на существующей папке проходит и без права записи — проверяем пробой
+    const probe = path.join(root, `.tytry-write-test-${process.pid}`);
     try {
       fs.mkdirSync(root, { recursive: true });
-    } catch {
-      return NextResponse.json({ error: `Cannot create folder: ${root}` }, { status: 400 });
+      fs.writeFileSync(probe, "");
+      fs.unlinkSync(probe);
+    } catch (err) {
+      return NextResponse.json(
+        { error: `Cannot write to folder: ${root} (${err instanceof Error ? err.message : err})` },
+        { status: 400 }
+      );
     }
     updateProject(id, { outputRoot: root });
   }
@@ -37,6 +45,9 @@ export async function POST(req: NextRequest) {
   const job = enqueueRender(id, origin);
   if (withIterations) {
     for (const it of loadProject(id)?.iterations ?? []) {
+      // переводы НЕ перерендериваем: файл уже готов, а повторный прогон
+      // WaveSpeed стоит денег (и падает, если ключа больше нет)
+      if (it.kind === "translate") continue;
       updateIteration(id, it.id, { status: "queued", progress: 0, error: undefined });
       enqueueIteration(id, it.id, origin);
     }

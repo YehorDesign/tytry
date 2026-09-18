@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   CAPTION_STYLES,
   WORDS_SLIDER_MAX,
@@ -10,6 +10,7 @@ import {
 import { BUILTIN_FONTS } from "@/remotion/fonts";
 import type { Dict } from "@/lib/i18n";
 import type { StyleOverrides } from "@/lib/types";
+import { type CustomFontInfo, fetchFonts } from "@/lib/custom-fonts-client";
 
 /** Мини-превью пресета: статичная имитация кадра с субтитром */
 const StyleThumb: React.FC<{
@@ -128,6 +129,9 @@ export const StylePanel: React.FC<{
 }) => {
   const resolved = resolveStyle(styleId, overrides);
   const [systemFonts, setSystemFonts] = useState<string[]>([]);
+  const [customFonts, setCustomFonts] = useState<CustomFontInfo[]>([]);
+  const [fontUploading, setFontUploading] = useState(false);
+  const fontInputRef = useRef<HTMLInputElement>(null);
   // краткое «✓ готово» на кнопках глобальных действий
   const [appliedFlash, setAppliedFlash] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -147,12 +151,42 @@ export const StylePanel: React.FC<{
     }
   };
 
-  useEffect(() => {
-    fetch("/api/fonts")
-      .then((r) => r.json())
-      .then((d: { fonts: string[] }) => setSystemFonts(d.fonts ?? []))
+  const reloadFonts = () => {
+    fetchFonts()
+      .then(({ fonts, custom }) => {
+        setSystemFonts(fonts);
+        setCustomFonts(custom);
+      })
       .catch(() => {});
-  }, []);
+  };
+
+  useEffect(reloadFonts, []);
+
+  /** Свой шрифт: файл копируется в воркспейс и сразу становится выбранным. */
+  const uploadFonts = async (files: FileList) => {
+    setFontUploading(true);
+    try {
+      const form = new FormData();
+      for (const file of Array.from(files)) form.append("files", file);
+      const res = await fetch("/api/fonts", { method: "POST", body: form });
+      const data = (await res.json()) as {
+        added?: string[];
+        errors?: { name: string; error: string }[];
+        custom?: CustomFontInfo[];
+        error?: string;
+      };
+      if (data.custom) setCustomFonts(data.custom);
+      reloadFonts();
+      if (data.error) alert(data.error);
+      else if (data.errors?.length) {
+        alert(data.errors.map((e) => `${e.name}: ${e.error}`).join("\n"));
+      }
+      const first = data.added?.[0];
+      if (first) set({ fontFamily: first });
+    } finally {
+      setFontUploading(false);
+    }
+  };
 
   const set = (patch: StyleOverrides) => onOverridesChange({ ...overrides, ...patch });
 
@@ -194,29 +228,59 @@ export const StylePanel: React.FC<{
 
       <div className="control-row">
         <span className="control-label">{t.font}</span>
-        <select
-          className="select"
-          style={{ maxWidth: 180 }}
-          value={resolved.fontFamily}
-          onChange={(e) => set({ fontFamily: e.target.value })}
-        >
-          <optgroup label={t.builtinFonts}>
-            {BUILTIN_FONTS.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </optgroup>
-          {systemFonts.length > 0 && (
-            <optgroup label={t.systemFonts}>
-              {systemFonts.map((f) => (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", maxWidth: 210 }}>
+          <select
+            className="select"
+            style={{ maxWidth: 180 }}
+            value={resolved.fontFamily}
+            onChange={(e) => set({ fontFamily: e.target.value })}
+          >
+            <optgroup label={t.builtinFonts}>
+              {BUILTIN_FONTS.map((f) => (
                 <option key={f} value={f}>
                   {f}
                 </option>
               ))}
             </optgroup>
-          )}
-        </select>
+            {customFonts.length > 0 && (
+              <optgroup label={t.myFonts}>
+                {customFonts.map((f) => (
+                  <option key={f.id} value={f.family}>
+                    {f.family}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {systemFonts.length > 0 && (
+              <optgroup label={t.systemFonts}>
+                {systemFonts.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <button
+            className="btn btn-sm"
+            onClick={() => fontInputRef.current?.click()}
+            disabled={fontUploading}
+            title={t.addFontHint}
+          >
+            {fontUploading ? "…" : "+"}
+          </button>
+          <input
+            ref={fontInputRef}
+            type="file"
+            accept=".ttf,.otf,.ttc,font/ttf,font/otf"
+            multiple
+            hidden
+            onChange={(e) => {
+              if (e.target.files?.length) void uploadFonts(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </div>
       </div>
 
       <div className="control-row">
