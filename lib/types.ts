@@ -251,6 +251,11 @@ export type Iteration = {
   parts?: { done: number; total: number };
   /** абсолютный путь готового файла */
   file?: string;
+  /**
+   * id проекта, созданного из переведённого видео (kind=translate): в нём
+   * речь распознана на языке перевода, субтитры можно двигать и править
+   */
+  translatedProjectId?: string;
   error?: string;
   createdAt: string;
 };

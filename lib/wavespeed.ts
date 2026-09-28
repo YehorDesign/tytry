@@ -8,8 +8,23 @@ import { getWavespeedKey } from "./settings";
 import { translateLanguage } from "./languages";
 
 const API = "https://api.wavespeed.ai/api/v3";
-/** WaveSpeed принимает файлы до 200 МБ */
+/** Хранилище WaveSpeed принимает файлы до 200 МБ (прямой аплоад). */
 export const WAVESPEED_UPLOAD_LIMIT_MB = 200;
+/**
+ * А вот САМ ПЕРЕВОД ломается раньше: WaveSpeed скачивает наш файл к себе и
+ * перезаливает в HeyGen, и на тяжёлом файле это падает уже ПОСЛЕ успешной
+ * загрузки — «Prediction failed: Exception: Failed to upload /tmp/….mp4».
+ *
+ * Точного числа в их доках нет, поэтому граница взята из замеров 21.09.2026:
+ * 171 МБ одним файлом — отказ, части по 128 и 133 МБ — перевелись. Порог
+ * где-то между ними, так что держимся заметно ниже.
+ *
+ * (Документальные «32 МБ» у HeyGen — это лимит их обычной загрузки ассетов,
+ * к пути WaveSpeed он не относится: 133 МБ прошли.)
+ */
+export const TRANSLATE_INPUT_LIMIT_MB = 140;
+/** Цель сжатия: запас до порога плюс неточность попадания в битрейт. */
+export const TRANSLATE_COMPRESS_TARGET_MB = 120;
 
 function authHeaders(): Record<string, string> {
   const key = getWavespeedKey();
@@ -33,25 +48,59 @@ async function wsJson<T>(res: Response, what: string): Promise<T> {
   return body.data;
 }
 
-/** Загружает локальный файл в хранилище WaveSpeed (живёт 7 дней) → URL. */
-async function uploadFile(filePath: string): Promise<string> {
-  const sizeMb = fs.statSync(filePath).size / 1024 / 1024;
-  if (sizeMb > WAVESPEED_UPLOAD_LIMIT_MB) {
-    throw new Error(
-      `Video is too big for translation: ${Math.round(sizeMb)} MB (limit ${WAVESPEED_UPLOAD_LIMIT_MB} MB)`
-    );
-  }
-  // openAsBlob (Node ≥19.8) не грузит файл в память целиком
+/** Файл как Blob — openAsBlob (Node ≥19.8) не грузит его в память целиком. */
+async function fileBlob(filePath: string): Promise<Blob> {
   const openAsBlob = (
     fs as unknown as {
       openAsBlob?: (p: string, o: { type: string }) => Promise<Blob>;
     }
   ).openAsBlob;
-  const blob = openAsBlob
+  return openAsBlob
     ? await openAsBlob(filePath, { type: "video/mp4" })
     : new Blob([fs.readFileSync(filePath)], { type: "video/mp4" });
+}
+
+type UploadTicket = {
+  download_url: string;
+  upload?: { method?: string; url: string; headers?: Record<string, string> };
+};
+
+/**
+ * Прямая загрузка: у api.wavespeed.ai берём подписанную ссылку, а байты
+ * уезжают сразу в хранилище, МИНУЯ их API-шлюз.
+ *
+ * Через шлюз (старый /media/upload/binary) заявленные 200 МБ не проходят:
+ * он рубит тело запроса гораздо раньше — «413 Request Entity Too Large»
+ * от stgw уже на нескольких десятках МБ, а иногда просто рвёт соединение.
+ */
+async function uploadDirect(filePath: string, size: number): Promise<string> {
+  const res = await fetch(`${API}/media/uploads`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: "video.mp4", size, content_type: "video/mp4" }),
+  });
+  const ticket = await wsJson<UploadTicket>(res, "upload ticket");
+  if (!ticket.upload?.url) throw new Error("WaveSpeed upload ticket: no upload url");
+  if (!ticket.download_url) throw new Error("WaveSpeed upload ticket: no download_url");
+
+  // подпись считается по ВСЕМ заголовкам тикета (в том числе If-None-Match),
+  // поэтому шлём их как есть; Authorization на подписанную ссылку не идёт
+  const put = await fetch(ticket.upload.url, {
+    method: ticket.upload.method || "PUT",
+    headers: { ...(ticket.upload.headers ?? {}) },
+    body: await fileBlob(filePath),
+  });
+  if (!put.ok) {
+    const text = await put.text().catch(() => "");
+    throw new Error(`WaveSpeed upload: HTTP ${put.status} ${text.slice(0, 300)}`);
+  }
+  return ticket.download_url;
+}
+
+/** Старый путь через шлюз — на случай, если тикеты аккаунту недоступны. */
+async function uploadBinary(filePath: string): Promise<string> {
   const form = new FormData();
-  form.append("file", blob, "video.mp4");
+  form.append("file", await fileBlob(filePath), "video.mp4");
   const res = await fetch(`${API}/media/upload/binary`, {
     method: "POST",
     headers: authHeaders(),
@@ -60,6 +109,27 @@ async function uploadFile(filePath: string): Promise<string> {
   const data = await wsJson<{ download_url: string }>(res, "upload");
   if (!data.download_url) throw new Error("WaveSpeed upload: no download_url");
   return data.download_url;
+}
+
+/** Загружает локальный файл в хранилище WaveSpeed (живёт 7 дней) → URL. */
+async function uploadFile(filePath: string): Promise<string> {
+  const size = fs.statSync(filePath).size;
+  const sizeMb = size / 1024 / 1024;
+  if (sizeMb > WAVESPEED_UPLOAD_LIMIT_MB) {
+    throw new Error(
+      `Video is too big for translation: ${Math.round(sizeMb)} MB (limit ${WAVESPEED_UPLOAD_LIMIT_MB} MB)`
+    );
+  }
+  try {
+    return await uploadDirect(filePath, size);
+  } catch (e) {
+    // тикет не выдали — пробуем старый эндпоинт. Если же упала сама заливка
+    // в хранилище, повтор через шлюз бессмыслен: он тем более не примет
+    const msg = (e as Error).message;
+    if (!msg.includes("upload ticket")) throw e;
+    console.warn(`[translate] direct upload unavailable (${msg}) — falling back to /media/upload/binary`);
+    return await uploadBinary(filePath);
+  }
 }
 
 /** Ставит задачу перевода → id задачи. */
@@ -153,6 +223,15 @@ export async function translateVideoFile(opts: {
   onProgress?: (p: number) => void;
 }): Promise<void> {
   const report = (p: number) => opts.onProgress?.(Math.min(Math.max(p, 0), 1));
+
+  // лучше честная ошибка здесь, чем «Failed to upload /tmp/…» из их воркера
+  // через минуту ожидания: перебор по размеру виден заранее
+  const inputMb = fs.statSync(opts.inputPath).size / 1024 / 1024;
+  if (inputMb > TRANSLATE_INPUT_LIMIT_MB) {
+    throw new Error(
+      `Video is too big for translation: ${Math.round(inputMb)} MB (limit ${TRANSLATE_INPUT_LIMIT_MB} MB)`
+    );
+  }
 
   report(0.02);
   const url = await uploadFile(opts.inputPath);

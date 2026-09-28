@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { flattenTimeline, probeMedia } from "./ffmpeg";
 import { compressToSize } from "./compress";
-import { translateVideoFile, WAVESPEED_UPLOAD_LIMIT_MB } from "./wavespeed";
+import { translateVideoFile, TRANSLATE_COMPRESS_TARGET_MB } from "./wavespeed";
 import { rmFileSync } from "./rmrf";
 
 /** Жёсткий лимит HeyGen video-translate — 120 с на запрос. */
@@ -274,8 +274,8 @@ export async function translateLongVideo(opts: TranslateLongOptions): Promise<vo
         hasAudio: probe.hasAudio,
         outPath: cutPath(i),
       });
-      // лимит загрузки WaveSpeed действует на каждую часть отдельно
-      await compressToSize(cutPath(i), WAVESPEED_UPLOAD_LIMIT_MB - 10);
+      // лимит перевода действует на каждую часть отдельно
+      await compressToSize(cutPath(i), TRANSLATE_COMPRESS_TARGET_MB);
       cutProgress = (k + 1) / todo.length;
       pushProgress();
     }

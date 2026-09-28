@@ -1,23 +1,29 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { CaptionInputProps, Iteration, Project } from "./types";
+import type { CaptionInputProps, Iteration, Project, TextOverlay } from "./types";
 import { listCustomFonts } from "./fonts-custom";
 import {
+  AUDIO_DIR,
   MUSIC_DIR,
   RENDERS_DIR,
+  THUMBS_DIR,
   UPLOADS_DIR,
   loadProject,
+  saveProject,
   updateIteration,
   updateProject,
 } from "./store";
 import { getSettings, getWavespeedKey } from "./settings";
 import { renderProjectNative } from "./render-native/render";
-import { flattenTimeline, mixMusic, probeVideo } from "./ffmpeg";
+import { extractAudio, extractThumbnail, flattenTimeline, mixMusic, probeMedia, probeVideo } from "./ffmpeg";
+import { transcribeAudio } from "./deepgram";
+import type { TranslateLanguage } from "./languages";
 import { getClips, needsFlatten } from "./montage";
 import { buildIterationProject } from "./iterations";
 import { compressToSize, enforceSizeLimit } from "./compress";
-import { WAVESPEED_UPLOAD_LIMIT_MB } from "./wavespeed";
+import { TRANSLATE_COMPRESS_TARGET_MB, TRANSLATE_INPUT_LIMIT_MB } from "./wavespeed";
 import { translateLongVideo, TRANSLATE_MAX_CHUNK_MS } from "./translate";
 import { translateLanguage } from "./languages";
 import { rmFileSync } from "./rmrf";
@@ -284,12 +290,12 @@ function iterationOutputPath(project: Project, iteration: Iteration): string {
   );
 }
 
-// ── итерация-перевод: WaveSpeed (HeyGen), видео БЕЗ субтитров ──
+// ── итерация-перевод: WaveSpeed (HeyGen), видео БЕЗ вжжённых субтитров ──
 // Пайплайн: чистая склейка без музыки → перевод (длинное видео — частями,
 // см. lib/translate.ts) → музыка обратно (без перекодирования видео) → файл
-// в папку видоса. Субтитры НЕ вжигаются: распознавание переведённой речи
-// почти всегда хочется поправить, поэтому сабы делаются обычным путём —
-// готовый файл закидывается в ТИТРИ как новое видео.
+// в папку видоса → отдельный проект с распознанной речью на языке перевода.
+// Субтитры не вжигаются: их почти всегда хочется поправить, поэтому они
+// приезжают редактируемыми в новый проект (createTranslatedProject).
 
 async function renderTranslateIteration(
   project: Project,
@@ -355,9 +361,9 @@ async function renderTranslateIteration(
     }
     setP(0.04);
 
-    // лимит загрузки WaveSpeed: ужимаем с запасом (оригинал не трогаем).
+    // лимит HeyGen на входное видео: ужимаем с запасом (оригинал не трогаем).
     // длинное видео пойдёт частями — там каждая часть ужимается сама
-    const limitBytes = (WAVESPEED_UPLOAD_LIMIT_MB - 5) * 1024 * 1024;
+    const limitBytes = TRANSLATE_INPUT_LIMIT_MB * 1024 * 1024;
     // длительность берём у РЕАЛЬНОГО файла: у монтажного проекта
     // project.video.durationMs — это исходник, а не длина таймлайна
     const sourceMs = (await probeVideo(sourceForTranslate)).durationMs;
@@ -367,7 +373,7 @@ async function renderTranslateIteration(
         fs.copyFileSync(sourceForTranslate, cleanPath);
         sourceForTranslate = cleanPath;
       }
-      await compressToSize(cleanPath, WAVESPEED_UPLOAD_LIMIT_MB - 10);
+      await compressToSize(cleanPath, TRANSLATE_COMPRESS_TARGET_MB);
     }
     setP(0.05);
 
@@ -412,10 +418,9 @@ async function renderTranslateIteration(
     }
     setP(0.9);
 
-    // ── 4. отдаём переведённое видео БЕЗ СУБТИТРОВ ──
-    // субтитры на языке перевода почти всегда хочется поправить руками,
-    // поэтому вжигать их сразу нельзя: файл кладём как есть, а сабы юзер
-    // делает обычным путём — закинув этот файл в ТИТРИ как новое видео
+    // ── 4. кладём переведённое видео в папку видоса БЕЗ СУБТИТРОВ ──
+    // это готовый файл на случай, если сабы не нужны вовсе; редактируемые
+    // сабы приезжают следующим шагом, отдельным проектом
     const outputLocation = path.join(
       resolveVideoDir(project),
       `${safeProjectName(project)}_${lang.code}.mp4`
@@ -426,14 +431,131 @@ async function renderTranslateIteration(
     const maxMb = project.batchRef?.maxSizeMb ?? getSettings().maxSizeMb ?? 0;
     await compressToSize(outputLocation, maxMb);
 
+    // ── 5. отдельный проект с РЕДАКТИРУЕМЫМИ субтитрами перевода ──
+    // берём resultPath, а не outputLocation: последний мог быть ужат под
+    // лимит размера, а базой для пере-рендера лучше файл получше
+    const translatedProjectId = await createTranslatedProject(
+      project,
+      iteration,
+      lang,
+      resultPath
+    );
+
     updateIteration(projectId, iteration.id, {
       status: "done",
       progress: 1,
       file: outputLocation,
+      translatedProjectId,
     });
   } finally {
     rmFileSync(cleanPath);
     rmFileSync(mixedPath);
+  }
+}
+
+/**
+ * Переведённое видео → отдельный проект в ленте: речь распознаётся на языке
+ * перевода, оформление наследуется от исходника. Субтитры к переводу почти
+ * всегда хочется поправить, поэтому вжигать их сразу нельзя — но и гонять
+ * файл обратно в ТИТРИ руками незачем.
+ *
+ * Ошибки не пробрасываем: перевод уже оплачен, и упавшее распознавание не
+ * должно ронять итерацию. Проект тогда остаётся с видео, но без слов —
+ * распознавание повторяется обычной кнопкой.
+ */
+/**
+ * Тайминги текст-плашек под длительность перевода.
+ *
+ * Переведённое видео почти всегда ДЛИННЕЕ исходника (замеры: испанский даёт
+ * +8%, HeyGen растягивает речь), поэтому унаследованные как есть плашки
+ * уехали бы на несколько секунд. Тянем их пропорционально — попадание
+ * приблизительное, но плашку легко поправить мышкой, а вот потерять её
+ * молча хуже.
+ */
+function stretchOverlays(source: Project, durationMs: number): TextOverlay[] | null {
+  const overlays = source.overlays;
+  if (!overlays || overlays.length === 0) return null;
+  const from = source.video.durationMs;
+  if (!Number.isFinite(from) || from <= 0 || !Number.isFinite(durationMs) || durationMs <= 0) {
+    return overlays.map((o) => ({ ...o }));
+  }
+  const k = durationMs / from;
+  return overlays.map((o) => ({
+    ...o,
+    startMs: Math.round(Math.min(o.startMs * k, durationMs)),
+    endMs: Math.round(Math.min(o.endMs * k, durationMs)),
+  }));
+}
+
+async function createTranslatedProject(
+  source: Project,
+  iteration: Iteration,
+  lang: TranslateLanguage,
+  videoPath: string
+): Promise<string | undefined> {
+  // повторный рендер итерации не должен плодить копии проекта
+  if (iteration.translatedProjectId && loadProject(iteration.translatedProjectId)) {
+    return iteration.translatedProjectId;
+  }
+
+  const id = crypto.randomBytes(6).toString("hex");
+  const fileName = `${id}.mp4`;
+  const filePath = path.join(UPLOADS_DIR, fileName);
+  try {
+    fs.copyFileSync(videoPath, filePath);
+    const meta = await probeMedia(filePath);
+    await extractThumbnail(filePath, path.join(THUMBS_DIR, `${id}.jpg`)).catch(() => {});
+
+    const project: Project = {
+      id,
+      name: `${source.name} [${lang.code.toUpperCase()}]`,
+      createdAt: new Date().toISOString(),
+      status: "uploaded",
+      language: lang.code,
+      video: {
+        fileName,
+        originalName: `${safeProjectName(source)}_${lang.code}.mp4`,
+        width: meta.width,
+        height: meta.height,
+        durationMs: meta.durationMs,
+        fps: meta.fps,
+      },
+      words: null,
+      // монтаж уже склеен, а музыка вмикширована в сам файл: останься они
+      // здесь — рендер положил бы музыку вторым слоем поверх неё же
+      clips: null,
+      music: null,
+      styleId: source.styleId,
+      overrides: { ...source.overrides },
+      // дисклеймер висит на всём видео, тайминга у него нет — берём как есть
+      disclaimer: source.disclaimer ?? null,
+      overlays: stretchOverlays(source, meta.durationMs),
+      folder: source.folder ?? null,
+      outputRoot: source.outputRoot,
+      batchRef: source.batchRef ?? null,
+    };
+    saveProject(project);
+
+    // code из lib/languages.ts — это и есть код языка Deepgram
+    updateProject(id, { status: "transcribing" });
+    const audioPath = path.join(AUDIO_DIR, `${id}.wav`);
+    await extractAudio(filePath, audioPath);
+    const words = await transcribeAudio(audioPath, lang.code);
+    updateProject(id, {
+      status: words.length > 0 ? "ready" : "error",
+      words,
+      error: words.length > 0 ? undefined : "Deepgram found no speech in this video",
+    });
+    return id;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[translate] editable ${lang.code} project failed: ${message}`);
+    if (loadProject(id)) {
+      updateProject(id, { status: "error", error: message });
+      return id;
+    }
+    rmFileSync(filePath);
+    return undefined;
   }
 }
 

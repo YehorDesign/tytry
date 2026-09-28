@@ -2644,12 +2644,20 @@ export default function Home() {
                           )}
                           {it.status === "error" && (
                             <>
+                              {/* текст ошибки виден сразу: «ошибка» без причины
+                                  заставляет лезть в json проекта */}
                               <span
                                 className="hint"
-                                style={{ flex: 1, color: "var(--danger)" }}
+                                style={{
+                                  flex: 1,
+                                  color: "var(--danger)",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
                                 title={it.error}
                               >
-                                {t.batchStatusError}
+                                {it.error ? `${t.batchStatusError}: ${it.error}` : t.batchStatusError}
                               </span>
                               {/* перевод кэшируется в uploads: повтор после сбоя
                                   Deepgram/склейки не платит за перевод заново */}
